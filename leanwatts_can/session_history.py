@@ -171,10 +171,18 @@ class SessionHistoryPage(QWidget):
         self.export_button.setEnabled(False)
         self._sync_actions()
 
-    def _dashboard_status(self, session, unit):
+    def _status_lookup(self):
+        """One outbox scan for all rows (None when the outbox cannot provide a map)."""
+        build = getattr(self.outbox, "status_map", None)
+        return build() if build is not None else None
+
+    def _dashboard_status(self, session, unit, statuses=None):
         if self.outbox is None or session is None or not unit.get("serial"):
             return ""
-        item = self.outbox.status_for(session.get("session_id", ""), str(unit["serial"]))
+        if statuses is not None:
+            item = statuses.get((session.get("session_id", ""), str(unit["serial"])))
+        else:
+            item = self.outbox.status_for(session.get("session_id", ""), str(unit["serial"]))
         if item is None:
             return "Not generated"
         if item.stale:
@@ -182,11 +190,16 @@ class SessionHistoryPage(QWidget):
         return item.status.capitalize()
 
     def refresh_status(self, *args):
-        """Re-read the dashboard column (after the outbox sends or a report is queued)."""
+        """Re-read the dashboard column (after the outbox sends or a report is queued); only changed cells are touched."""
+        if not self._unit_rows:
+            return
+        statuses = self._status_lookup()
         for row, unit in enumerate(self._unit_rows):
             cell = self.units.item(row, 7)
             if cell is not None:
-                cell.setText(self._dashboard_status(self._unit_session, unit))
+                text = self._dashboard_status(self._unit_session, unit, statuses)
+                if cell.text() != text:
+                    cell.setText(text)
 
     def _sync_actions(self, *args):
         self.generate_button.setEnabled(self.kind.currentData() == "sessions" and self.outbox is not None
@@ -216,17 +229,20 @@ class SessionHistoryPage(QWidget):
                       "elapsed_seconds": record.get("elapsed_seconds")}]
             self.summary.setText("Earlier individual unit report · " + str(record.get("run_id", "")))
         self._unit_session, self._unit_rows = session, list(units)
+        statuses = self._status_lookup() if session is not None else None
+        self.units.setUpdatesEnabled(False)
         self.units.setRowCount(len(units))
         for row, unit in enumerate(units):
             values = (local_time(unit.get("started_at")), unit.get("serial", unit.get("unit_serial", "")),
                       unit.get("recipe_name", "") + (f" · {unit['attempt_count']} attempts" if unit.get("attempt_count", 0) > 1 else ""), unit.get("calibration_result", "NOT RUN"),
                       unit.get("test_result", "NOT RUN"), unit.get("outcome", ""),
                       number(unit.get("duration_seconds", unit.get("elapsed_seconds")), "s"),
-                      self._dashboard_status(session, unit))
+                      self._dashboard_status(session, unit, statuses))
             for col, value in enumerate(values):
                 cell = QTableWidgetItem(str(value))
                 cell.setToolTip(str(unit.get("failure_reason") or unit.get("detail", "")))
                 self.units.setItem(row, col, cell)
+        self.units.setUpdatesEnabled(True)
         self.open_button.setEnabled(True)
         self.export_button.setEnabled(True)
         self._sync_actions()
@@ -318,6 +334,9 @@ class SessionHistoryPage(QWidget):
             if source != target.resolve():
                 if kind == "html":
                     export_html_reports(paths, target)
+                elif kind == "json" and self.kind.currentData() == "sessions":
+                    # The complete audit record: raw acquisitions kept beside the session file are put back inline.
+                    self.store.export_record(self._selected()["session_id"], target)
                 else:
                     shutil.copyfile(source, target)
             self.status.setText("Report exported: " + str(target)
