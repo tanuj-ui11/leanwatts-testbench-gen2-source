@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import html
 import shutil
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -39,12 +40,16 @@ def export_html_reports(paths, destination):
 
 
 class SessionHistoryPage(QWidget):
-    def __init__(self, data_dir, store, parent=None):
+    def __init__(self, data_dir, store, parent=None, *, outbox=None, station_name=lambda: ""):
         super().__init__(parent)
         self.data_dir = Path(data_dir)
         self.store = store
+        self.outbox = outbox
+        self.station_name = station_name
         self._records = []
         self._shown = []
+        self._unit_session = None
+        self._unit_rows = []
         body = QVBoxLayout(self)
         body.setContentsMargins(0, 10, 0, 0)
         row = QHBoxLayout()
@@ -74,11 +79,12 @@ class SessionHistoryPage(QWidget):
         self.summary = QLabel("Select a session to see its chargers.")
         self.summary.setWordWrap(True)
         card.body.addWidget(self.summary)
-        self.units = QTableWidget(0, 7)
-        self.units.setHorizontalHeaderLabels(["Time", "Serial", "Variant", "Calibration", "Post-test", "Result", "Elapsed"])
+        self.units = QTableWidget(0, 8)
+        self.units.setHorizontalHeaderLabels(["Time", "Serial", "Variant", "Calibration", "Post-test", "Result", "Elapsed", "Dashboard"])
         self.units.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.units.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.units.setMinimumHeight(110)
+        self.units.itemSelectionChanged.connect(self._sync_actions)
         theme.style_table(self.units, row_h=31)
         card.body.addWidget(self.units, 1)
         body.addWidget(card, 1)
@@ -86,11 +92,16 @@ class SessionHistoryPage(QWidget):
         self.status = QLabel("")
         self.status.setWordWrap(True)
         actions.addWidget(self.status, 1)
+        self.generate_button = QPushButton("Generate report")
+        self.generate_button.setToolTip("Build this serial's EoL report and queue it for the dashboard. Nothing is sent automatically.")
+        self.generate_button.clicked.connect(self._generate)
+        self.generate_button.setEnabled(False)
         self.open_button = QPushButton("Open complete report")
         self.open_button.setObjectName("Primary")
         self.open_button.clicked.connect(self._open)
         self.export_button = QPushButton("Export report")
         self.export_button.clicked.connect(self._export)
+        actions.addWidget(self.generate_button)
         actions.addWidget(self.open_button)
         actions.addWidget(self.export_button)
         body.addLayout(actions)
@@ -154,9 +165,28 @@ class SessionHistoryPage(QWidget):
                 self.table.setItem(row, col, QTableWidgetItem(str(value)))
         self.table.blockSignals(False)
         self.units.setRowCount(0)
+        self._unit_rows, self._unit_session = [], None
         self.summary.setText(f"{len(self._shown)} report(s). Select a row to view its chargers.")
         self.open_button.setEnabled(False)
         self.export_button.setEnabled(False)
+        self._sync_actions()
+
+    def _dashboard_status(self, session, unit):
+        if self.outbox is None or session is None or not unit.get("serial"):
+            return ""
+        item = self.outbox.status_for(session.get("session_id", ""), str(unit["serial"]))
+        return item.status.capitalize() if item else "Not generated"
+
+    def refresh_status(self, *args):
+        """Re-read the dashboard column (after the outbox sends or a report is queued)."""
+        for row, unit in enumerate(self._unit_rows):
+            cell = self.units.item(row, 7)
+            if cell is not None:
+                cell.setText(self._dashboard_status(self._unit_session, unit))
+
+    def _sync_actions(self, *args):
+        self.generate_button.setEnabled(self.kind.currentData() == "sessions" and self.outbox is not None
+                                        and 0 <= self.units.currentRow() < len(self._unit_rows))
 
     def _selected(self):
         index = self.table.currentRow()
@@ -166,6 +196,7 @@ class SessionHistoryPage(QWidget):
         record = self._selected()
         if record is None:
             return
+        session = record if self.kind.currentData() == "sessions" else None
         if self.kind.currentData() == "sessions":
             units = record.get("unit_summaries", record.get("units", []))
             self.summary.setText(f"Session {record.get('session_id', '')} · {record.get('status', '')} · "
@@ -180,18 +211,67 @@ class SessionHistoryPage(QWidget):
                       "outcome": record.get("outcome", record.get("state", "")),
                       "elapsed_seconds": record.get("elapsed_seconds")}]
             self.summary.setText("Earlier individual unit report · " + str(record.get("run_id", "")))
+        self._unit_session, self._unit_rows = session, list(units)
         self.units.setRowCount(len(units))
         for row, unit in enumerate(units):
             values = (local_time(unit.get("started_at")), unit.get("serial", unit.get("unit_serial", "")),
                       unit.get("recipe_name", "") + (f" · {unit['attempt_count']} attempts" if unit.get("attempt_count", 0) > 1 else ""), unit.get("calibration_result", "NOT RUN"),
                       unit.get("test_result", "NOT RUN"), unit.get("outcome", ""),
-                      number(unit.get("duration_seconds", unit.get("elapsed_seconds")), "s"))
+                      number(unit.get("duration_seconds", unit.get("elapsed_seconds")), "s"),
+                      self._dashboard_status(session, unit))
             for col, value in enumerate(values):
                 cell = QTableWidgetItem(str(value))
                 cell.setToolTip(str(unit.get("failure_reason") or unit.get("detail", "")))
                 self.units.setItem(row, col, cell)
         self.open_button.setEnabled(True)
         self.export_button.setEnabled(True)
+        self._sync_actions()
+
+    def _generate(self):
+        try:
+            session = self._unit_session
+            index = self.units.currentRow()
+            if session is None or not 0 <= index < len(self._unit_rows):
+                raise ValueError("Select a charger serial first.")
+            if self.outbox is None:
+                raise ValueError("The dashboard outbox is not available.")
+            unit = self._unit_rows[index]
+            serial = str(unit.get("serial", ""))
+            attempts = [item for item in session.get("units", []) if item.get("serial") == serial]
+            if unit.get("outcome") == "RUNNING" or any(item.get("outcome") == "RUNNING" for item in attempts):
+                raise ValueError("Wait for this charger to finish before generating its report.")
+            if unit.get("simulation") or unit.get("serial_override") or any(
+                    item.get("simulation") or item.get("serial_override") for item in attempts):
+                raise ValueError("Simulation runs and Other-number serials cannot be sent to the dashboard.")
+            station = str(self.station_name() or "").strip()
+            if not station:
+                raise ValueError("Enter the station name in Settings > Dashboard first.")
+            attempt_ids = [item for item in (unit.get("attempt_ids") or [a.get("attempt_id") for a in attempts]) if item]
+            if not attempt_ids:
+                raise ValueError("This charger has no recorded attempt to report.")
+            # Lazy import: report building stays off the module-import path and off the instrument thread.
+            from . import eol_report
+            from .outbox import report_client_id
+            from .outbox_service import report_body
+            from .version import VERSION
+            generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+            report = eol_report.build_report(session=session, serial=serial, station=station,
+                                             software_version=VERSION, generated_at=generated_at)
+            html_text = eol_report.render_html(report)
+            body = report_body(report, html_text, station=station, generated_at=generated_at)
+            client_id = report_client_id(station, session["session_id"], serial, attempt_ids[-1])
+            item = self.outbox.write_pending(body, html_text, client_id, session_id=session["session_id"])
+            if item.status == "dead":
+                item = self.outbox.requeue(client_id)
+                message = "Report queued again for the dashboard."
+            elif item.status == "sent":
+                message = "This report version was already sent to the dashboard."
+            else:
+                message = "Report queued. It will be sent to the dashboard when the connection is available."
+            self.status.setText(f"{serial}: {message}")
+        except Exception as exc:
+            self.status.setText("Report not generated: " + str(exc))
+        self.refresh_status()
 
     def _paths(self):
         record = self._selected()
