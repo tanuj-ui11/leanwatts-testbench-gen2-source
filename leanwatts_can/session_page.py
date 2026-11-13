@@ -114,12 +114,14 @@ class SessionPage(QWidget):
         self.flow = self.engine = None
         self.snapshot = None
         self._attempt_id = None
+        self._attempt_serial = None  # serial of the last run that used Other number
         self._attempt_recorded = False
         self._session = None
         self._authenticated_operator = None
         self._last_report = None
         self._activity_dialog = None
         self._last_readiness = None
+        self._carried_override_serial = None  # serial the kept Other-number choice belongs to
         self._build()
         try:
             self._session = self.store.active()
@@ -329,6 +331,15 @@ class SessionPage(QWidget):
     def _identity_changed(self, *args):
         if self.busy:
             return
+        carried = self._carried_override_serial
+        if carried is not None and self.serial.text().strip() != carried:
+            # The kept choice belonged to the previous charger; the next one needs a fresh choice.
+            self._carried_override_serial = None
+            self.other_number.blockSignals(True)
+            self.other_number.setChecked(False)
+            self.other_number.blockSignals(False)
+            self.other_number.setText("Other number")
+            self.serial.setPlaceholderText("WO-S00430-1-001")
         if self.snapshot:
             self.snapshot = None
             self.flow = self.engine = None
@@ -342,13 +353,21 @@ class SessionPage(QWidget):
         self._lock_controls()
 
     def _serial_mode_changed(self, checked):
+        self._carried_override_serial = None
         self.serial.setPlaceholderText("Enter other charger number" if checked else "WO-S00430-1-001")
         self.other_number.setText("Other number ✓" if checked else "Other number")
         self._identity_changed()
 
-    def _reset_serial_mode(self):
+    def _reset_serial_mode(self, *, keep_for_serial=None):
         if self._sync_pending_unit():
             return
+        if keep_for_serial is not None and self.other_number.isChecked() \
+                and self.serial.text().strip() == keep_for_serial:
+            # Same charger, next process (e.g. Test after Parameters + Calibration): keep its
+            # Other number choice until the serial changes or the operator toggles it.
+            self._carried_override_serial = keep_for_serial
+            return
+        self._carried_override_serial = None
         # Keep the completed result visible while requiring a fresh choice for
         # the next unit; toggled handlers normally clear the previous result.
         self.other_number.blockSignals(True)
@@ -495,6 +514,7 @@ class SessionPage(QWidget):
             if error:
                 raise ValueError(error)
             serial = self.serial.text().strip()
+            self._attempt_serial = serial if serial_override else None
             self._cancel.clear()
             # These factory builders run on Qt's thread to freeze widget state.
             # Only the returned factories may open instruments on the worker.
@@ -627,7 +647,7 @@ class SessionPage(QWidget):
                 self.snapshot = future.result()
                 self._render_run(self.snapshot)
                 if self.snapshot and not self.snapshot.get("is_running"):
-                    self._reset_serial_mode()
+                    self._reset_serial_mode(keep_for_serial=self._attempt_serial)
                     self._session = self.store.active()
                     self._last_report = ((self._session or {}).get("report_paths") or {}).get("html")
                     self.report_saved.emit()
