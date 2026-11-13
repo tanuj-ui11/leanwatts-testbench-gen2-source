@@ -139,6 +139,7 @@ class SessionPage(QWidget):
         self._last_report = None
         self._activity_dialog = None
         self._last_readiness = None
+        self._readiness_cache = {}
         # Injected by the app: fetch_worklist(wo_ref) -> bench API payload. None means no dashboard is configured.
         self.fetch_worklist = None
         # Injected by the app: the configured station name, stamped on each attempt when it begins.
@@ -546,6 +547,43 @@ class SessionPage(QWidget):
     def _readiness(self, process="calibration"):
         if process not in ("calibration", "test_only"):
             return "Choose Parameters + Calibration or Test."
+        reason = self._stored_readiness(process)
+        if reason:
+            return reason
+        if self._mode != "simulation":
+            index = self.variant.currentIndex()
+            if self.records[index].get("simulation_only"):
+                return "Save the actual production variant in Variant recipes."
+            if self.live_run_factory is None:
+                return "The load and CAN connection are not configured."
+            checks = ("test_only",) if process == "test_only" else ("calibration",)
+            for check in checks:
+                reason = self.live_readiness(check)
+                if reason:
+                    return reason
+        return self.start_guard()
+
+    def _stored_readiness(self, process):
+        """Everything in the readiness decision that depends only on the session, the variant and the serial.
+
+        Recomputed only when one of those inputs (or the store revision) changes; the live-bench and
+        start-guard checks that follow are cheap and always evaluated fresh."""
+        index = self.variant.currentIndex()
+        record = self.records[index] if 0 <= index < len(self.records) else None
+        operator = self._session.get("operator", {}) if self._session else None
+        key = (id(self.store), self.store.revision, self.store.is_open(), index, repr(record),
+               self.serial.text(), self.other_number.isChecked(),
+               operator.get("id") if isinstance(operator, dict) else None, bool(self._session),
+               self._authenticated_operator.get("id") if self._authenticated_operator else None,
+               bool(self._authenticated_operator))
+        cached = self._readiness_cache.get(process)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        reason = self._compute_stored_readiness(process)
+        self._readiness_cache[process] = (key, reason)
+        return reason
+
+    def _compute_stored_readiness(self, process):
         if not self._session or not self._authenticated_operator:
             return "Start or resume an operator session."
         if self._authenticated_operator.get("id") != self._session.get("operator", {}).get("id"):
@@ -573,17 +611,7 @@ class SessionPage(QWidget):
                                       run_calibration=process == "calibration", run_tests=process == "test_only")
         if reason:
             return reason
-        if self._mode != "simulation":
-            if self.records[index].get("simulation_only"):
-                return "Save the actual production variant in Variant recipes."
-            if self.live_run_factory is None:
-                return "The load and CAN connection are not configured."
-            checks = ("test_only",) if process == "test_only" else ("calibration",)
-            for check in checks:
-                reason = self.live_readiness(check)
-                if reason:
-                    return reason
-        return self.start_guard()
+        return ""
 
     def _default_process(self):
         return "test_only" if (self._session or {}).get("session_mode") == "test_only" else "calibration"
@@ -624,7 +652,7 @@ class SessionPage(QWidget):
                 test_factory = self.live_run_factory(recipe, "test_only", self._cancel,
                     test_start_method="external_restart") if run_tests else None
                 cal_factory = self.live_run_factory(recipe, "calibration", self._cancel) if run_calibration else None
-            starting_point = (select_session_seed(self.store.active(), recipe, record["revision"])
+            starting_point = (self.store.read(lambda session: select_session_seed(session, recipe, record["revision"]))
                               if self._mode != "simulation" and run_calibration else None)
             self._attempt_id = self.store.begin_unit(serial, recipe.to_dict(), record["revision"], run_tests=run_tests,
                                                      run_calibration=run_calibration, serial_override=serial_override,
@@ -837,10 +865,9 @@ class SessionPage(QWidget):
         run_calibration = snapshot.get("run_calibration", self._run_calibration)
         if not run_calibration and (self._session or {}).get("session_mode") == "both_required":
             # The test is a separate attempt, but the operator sees the whole paired unit.
-            current = next((item for item in self.store.summarize(self.store.active() or {}, evidence=True)
-                            if self._attempt_id in item.get("attempt_ids", [])), None)
-            if current and current.get("calibration_result") == "PASS":
-                details = ([item for item in current.get("stage_details", []) if not is_test_stage(item.get("name", ""))]
+            paired = self.store.paired_stage_details(self._attempt_id)
+            if paired and paired[0] == "PASS":
+                details = ([item for item in paired[1] if not is_test_stage(item.get("name", ""))]
                     + [item for item in details if is_test_stage(item.get("name", ""))])
                 run_calibration = True
         self._render_stages(details, tests_not_run=not run_tests,

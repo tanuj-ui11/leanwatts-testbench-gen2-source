@@ -80,6 +80,8 @@ class Outbox:
         self.root = Path(root)
         self._clock = clock
         self._rand = rand
+        # Parsed state per folder and id, valid while the files' (mtime, size) are unchanged.
+        self._cache = {folder: {} for folder in FOLDERS}
         for folder in FOLDERS:
             (self.root / folder).mkdir(parents=True, exist_ok=True)
 
@@ -117,16 +119,46 @@ class Outbox:
                     next_attempt_at=float(state.get("next_attempt_at", 0.0) or 0.0),
                     last_error=str(state.get("last_error", "")), server=server)
 
+    def _forget(self, folder, client_report_id):
+        self._cache[folder].pop(client_report_id, None)
+
     def _list(self, folder):
-        items = []
-        for path in sorted((self.root / folder).glob("*.json")):
-            if path.name.endswith(".state.json"):
+        """Items of one folder. One directory scan; only files whose (mtime, size) changed are parsed again."""
+        payloads, states = {}, {}
+        try:
+            with os.scandir(self.root / folder) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if not name.endswith(".json"):
+                        continue
+                    try:
+                        status = entry.stat()
+                    except OSError:
+                        continue
+                    signature = (status.st_mtime_ns, status.st_size)
+                    if name.endswith(".state.json"):
+                        states[name[:-len(".state.json")]] = signature
+                    else:
+                        payloads[name[:-len(".json")]] = signature
+        except OSError:
+            return []
+        cache, items = self._cache[folder], []
+        for client_report_id, payload_signature in payloads.items():
+            signature = (payload_signature, states.get(client_report_id))
+            cached = cache.get(client_report_id)
+            if cached is not None and cached[0] == signature:
+                items.append(cached[1])
                 continue
             try:
-                items.append(self._item(folder, path.stem))
+                item = self._item(folder, client_report_id)
             except (OSError, ValueError, TypeError):
                 # Unreadable files stay where they are for inspection; they are never deleted here.
+                cache.pop(client_report_id, None)
                 continue
+            cache[client_report_id] = (signature, item)
+            items.append(item)
+        for gone in set(cache) - set(payloads):
+            del cache[gone]
         return sorted(items, key=lambda item: (item.created_at, item.client_report_id))
 
     def pending_items(self):
@@ -171,6 +203,7 @@ class Outbox:
         encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
         if len(encoded) > MAX_PAYLOAD_BYTES:
             raise ValueError("The report is too large to queue.")
+        self._forget("pending", client_report_id)
         _atomic_write(self._path("pending", client_report_id), encoded)
         state = self._state_defaults(client_report_id, payload, now)
         state["serial"] = body["serial"]
@@ -179,6 +212,7 @@ class Outbox:
         return self._item("pending", client_report_id)
 
     def _write_state(self, item, folder, state):
+        self._forget(folder, item.client_report_id)
         _atomic_write(self._path(folder, item.client_report_id, ".state.json"),
                       json.dumps(state, ensure_ascii=False, allow_nan=False).encode("utf-8"))
 
@@ -194,6 +228,8 @@ class Outbox:
         if not self._path(source, item.client_report_id).is_file():
             raise ValueError("The queued report is no longer in " + source + ".")
         self._write_state(item, target, state)
+        self._forget(source, item.client_report_id)
+        self._forget(target, item.client_report_id)
         os.replace(self._path(source, item.client_report_id), self._path(target, item.client_report_id))
         self._path(source, item.client_report_id, ".state.json").unlink(missing_ok=True)
         return self._item(target, item.client_report_id)
@@ -242,8 +278,17 @@ class Outbox:
         state = dict(self._state_of(item), attempts=0, next_attempt_at=now, last_error="", dead_at=None)
         return self._move(item, "dead", "pending", state)
 
+    def status_map(self):
+        """{(session_id, serial): most recent item} for the whole outbox from one scan of the three folders."""
+        best = {}
+        for folder in FOLDERS:
+            for item in self._list(folder):
+                key = (item.session_id, item.serial)
+                current = best.get(key)
+                if current is None or (item.created_at, item.client_report_id) > (current.created_at, current.client_report_id):
+                    best[key] = item
+        return best
+
     def status_for(self, session_id, serial):
         """Most recent outbox item for one serial of one session, or None."""
-        matches = [item for folder in FOLDERS for item in self._list(folder)
-                   if item.session_id == session_id and item.serial == serial]
-        return max(matches, key=lambda item: (item.created_at, item.client_report_id)) if matches else None
+        return self.status_map().get((session_id, serial))

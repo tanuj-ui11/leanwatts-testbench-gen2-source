@@ -141,7 +141,10 @@ def _recipe_sha256(recipe):
 
 
 def _latest_group(session, serial):
-    summaries = [item for item in SessionStore.summarize(session, evidence=True) if item.get("serial") == serial]
+    # Groups never span serials, so only this serial's attempts need summarizing (and evidence copying).
+    mine = [unit for unit in session.get("units", []) if str(unit.get("serial", "")).strip() == serial]
+    scoped = {"session_mode": session.get("session_mode", "independent"), "units": mine}
+    summaries = [item for item in SessionStore.summarize(scoped, evidence=True) if item.get("serial") == serial]
     if not summaries:
         raise ValueError("No attempts for this serial are recorded in the session.")
     order = {unit.get("attempt_id"): index for index, unit in enumerate(session.get("units", []))}

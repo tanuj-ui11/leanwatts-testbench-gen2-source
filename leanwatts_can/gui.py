@@ -152,7 +152,7 @@ class CalibrationWindow(QMainWindow):
             raise ValueError(exc.message) from None
 
     def _update_busy(self):
-        return bool(self.operator_page.busy or (getattr(self, "test_controller", None) and self.test_controller.busy) or self.session_store.active() or self.load_setup.busy
+        return bool(self.operator_page.busy or (getattr(self, "test_controller", None) and self.test_controller.busy) or self.session_store.is_open() or self.load_setup.busy
                     or (getattr(self, "firmware_controller", None) and self.firmware_controller.busy)
                     or self.legacy_page.device_open or self.legacy_page._live_future is not None)
 
