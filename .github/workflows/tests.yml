@@ -42,4 +42,9 @@ jobs:
       - name: Byte-compile sources and tools
         run: python -m compileall -q leanwatts_can tools
       - name: Run tests (fake instruments only; no hardware or network)
+        # Qt can crash in process teardown after all tests pass (exit 139 Linux, 1 Windows);
+        # the verdict is the result file written by the runner, checked in the next step.
+        continue-on-error: true
         run: python tools/run_unit_tests.py
+      - name: Verify test result
+        run: python -c "import pathlib,sys; r=pathlib.Path('test-result.txt'); sys.exit(0 if r.exists() and r.read_text().strip()=='PASS' else 1)"
