@@ -25,6 +25,7 @@ from .production_flow import ProductionFlow, validate_test_recipe
 from .session_seed import select_session_seed, starting_point_text
 from .session_store import OperatorStore, SessionStore, is_test_stage, test_stage_name
 from .serial_numbers import validate_serial
+from .worklist import OK as WORKLIST_OK, Worklist, classify, normalise_scan
 
 
 def caption(value="", *, large=False):
@@ -120,6 +121,10 @@ class SessionPage(QWidget):
         self._last_report = None
         self._activity_dialog = None
         self._last_readiness = None
+        # Injected by the app: fetch_worklist(wo_ref) -> bench API payload. None means no dashboard is configured.
+        self.fetch_worklist = None
+        self._worklist = None
+        self._pending_warning_serial = None
         self._build()
         try:
             self._session = self.store.active()
@@ -182,7 +187,7 @@ class SessionPage(QWidget):
         self.serial.setToolTip("Standard examples: WO-S00430-1-001 or WO-S00261-BS1-019. Select Other number for a different format.")
         self.serial.setMinimumHeight(38)
         self.serial.textChanged.connect(self._identity_changed)
-        self.serial.returnPressed.connect(lambda: self.start(self._default_process()))
+        self.serial.returnPressed.connect(self._scan_entered)
         select.addWidget(self.serial, 2)
         self.other_number = QPushButton("Other number")
         self.other_number.setCheckable(True)
@@ -191,6 +196,20 @@ class SessionPage(QWidget):
         self.other_number.toggled.connect(self._serial_mode_changed)
         select.addWidget(self.other_number)
         unit.body.addLayout(select)
+        worklist_row = QHBoxLayout()
+        worklist_row.setSpacing(8)
+        worklist_row.addWidget(caption("Work order"))
+        self.work_order = QLineEdit()
+        self.work_order.setPlaceholderText("WO-S00429")
+        self.work_order.setMinimumHeight(34)
+        worklist_row.addWidget(self.work_order, 1)
+        self.download_serials = QPushButton("Download serials")
+        self.download_serials.setMinimumHeight(34)
+        self.download_serials.clicked.connect(self._download_worklist)
+        worklist_row.addWidget(self.download_serials)
+        unit.body.addLayout(worklist_row)
+        self.worklist_status = caption("No work-order serials downloaded. Scans are not checked against a list.")
+        unit.body.addWidget(self.worklist_status)
         actions = QHBoxLayout()
         self.calibrate = QPushButton("Parameters +\nCalibration")
         self.calibrate.setObjectName("Primary")
@@ -327,6 +346,8 @@ class SessionPage(QWidget):
         self._identity_changed()
 
     def _identity_changed(self, *args):
+        # Any change to the serial field withdraws a pending warning confirmation.
+        self._pending_warning_serial = None
         if self.busy:
             return
         if self.snapshot:
@@ -356,6 +377,57 @@ class SessionPage(QWidget):
         self.other_number.blockSignals(False)
         self.other_number.setText("Other number")
         self.serial.setPlaceholderText("WO-S00430-1-001")
+
+    def _download_worklist(self):
+        if self.busy:
+            return
+        if self.fetch_worklist is None:
+            self.detail.setText("Dashboard not configured")
+            return
+        reference = self.work_order.text().strip()
+        if not reference:
+            self.detail.setText("Enter the work-order number, for example WO-S00429.")
+            return
+        try:
+            worklist = Worklist.from_contract(self.fetch_worklist(reference))
+        except Exception as exc:
+            self.detail.setText(f"Serials could not be downloaded: {exc}")
+            return
+        # Kept in memory only; never written into session files.
+        self._worklist = worklist
+        self._pending_warning_serial = None
+        self.worklist_status.setText(f"{worklist.wo_number} · {len(worklist.serials)} serials · as of {local_time(worklist.as_of)}")
+        self.detail.setText(f"Downloaded {len(worklist.serials)} serials for {worklist.wo_number}. Scans are checked against this list.")
+
+    def _worklist_check(self, serial):
+        """Warn-only check against the downloaded list. None when no check applies."""
+        if self._worklist is None or self.other_number.isChecked() or self.store.pending_unit():
+            return None
+        session_units = self.store.summarize(self._session) if self._session else []
+        done = {item.get("serial") for item in session_units if item.get("completion_state") == "COMPLETE"}
+        return classify(serial, self._worklist, already_passed_remote=self._worklist.passed_remote(),
+                        already_done_local=done)
+
+    def _worklist_gate(self, serial):
+        """True when the unit may start. A warning needs a second Start press for the same serial."""
+        check = self._worklist_check(serial)
+        if check is None or check.code == WORKLIST_OK or self._pending_warning_serial == serial:
+            self._pending_warning_serial = None
+            return True
+        self._pending_warning_serial = serial
+        self.detail.setText(f"{check.message} Press Start again to continue with this serial.")
+        return False
+
+    def _scan_entered(self):
+        if self._worklist is not None and not self.busy:
+            text = self.serial.text()
+            scanned = normalise_scan(text)
+            if scanned != text:
+                self.serial.setText(scanned)
+            check = self._worklist_check(scanned)
+            if check is not None:
+                self.detail.setText(check.message)
+        self.start(self._default_process())
 
     def set_mode(self, mode):
         if mode == self._mode:
@@ -495,6 +567,9 @@ class SessionPage(QWidget):
             if error:
                 raise ValueError(error)
             serial = self.serial.text().strip()
+            if not self._worklist_gate(serial):
+                self._lock_controls()
+                return
             self._cancel.clear()
             # These factory builders run on Qt's thread to freeze widget state.
             # Only the returned factories may open instruments on the worker.
@@ -609,6 +684,7 @@ class SessionPage(QWidget):
         self.variant.setEnabled(not active and logged_in and not pending)
         self.serial.setEnabled(not active and logged_in and not pending)
         self.other_number.setEnabled(not active and logged_in and not pending)
+        self.download_serials.setEnabled(not active)
         for button, process in ((self.calibrate, "calibration"),
                                 (self.test_only, "test_only")):
             reason = self._readiness(process) if not active else ""
