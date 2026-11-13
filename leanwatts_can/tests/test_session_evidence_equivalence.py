@@ -5,6 +5,7 @@
 byte-for-byte identical; only the raw acquisition lists (samples, can_trace, trace_events) may live
 in per-attempt sidecar files, and they must round-trip exactly.
 """
+import contextlib
 import copy
 import json
 import os
@@ -122,44 +123,49 @@ def run(store, serial, kind, result, **begin):
     return attempt
 
 
-def scenario(name, folder):
+@contextlib.contextmanager
+def deterministic():
     counter = iter(range(1, 10000))
     stamp = iter(range(10000))
     fixed_now = lambda: "2026-11-13T15:%02d:%02d+05:30" % divmod(next(stamp), 60)
     with mock.patch.object(session_store, "datetime", _FixedDatetime), \
             mock.patch.object(session_store.uuid, "uuid4", lambda: _Uuid(next(counter))), \
             mock.patch.object(session_store, "now_text", fixed_now):
-        mode = {"calibration_only": "calibration_only", "test_only": "test_only",
-                "simulation": "independent"}.get(name, "both_required")
-        store = SessionStore(folder)
-        store.start(OPERATOR, mode=mode)
-        S1, S2 = "WO-S00430-1-001", "WO-S00430-1-002"
-        if name == "pass":
-            run(store, S1, "cal", cal_result("a"))
-            run(store, S1, "test", test_only_result("b"))
-            run(store, S2, "cal", cal_result("c"))
-            run(store, S2, "test", test_only_result("d"))
-        elif name == "cutoff_fail":
-            run(store, S1, "cal", cal_result("a"))
-            run(store, S1, "test", test_only_result("b", outcome="FAIL"))
-        elif name == "stopped_interrupted":
-            run(store, S1, "cal", cal_result("a", outcome="STOPPED", ok=False, stage_status="STOPPED"))
-            store.begin_unit(S1, copy.deepcopy(RECIPE), 3, run_tests=False, run_calibration=True)  # left running
-            store = SessionStore(folder)  # restart: crash recovery marks it interrupted
-        elif name == "calibration_only":
-            run(store, S1, "cal", cal_result("a"))
-            run(store, S2, "cal", cal_result("b", ok=False, outcome="FAIL"))
-        elif name == "test_only":
-            run(store, S1, "test", test_only_result("a"))
-        elif name == "simulation":
-            run(store, S1, "cal", cal_result("a", outcome="SIMULATION", simulation=True))
-        elif name == "repeated_serial":
-            run(store, S1, "cal", cal_result("a", outcome="FAIL", ok=False))
-            run(store, S1, "cal", cal_result("b"))
-            run(store, S1, "test", test_only_result("c"))
-        else:
-            raise AssertionError(name)
-        return store
+        yield
+
+
+def scenario(name, folder):
+    mode = {"calibration_only": "calibration_only", "test_only": "test_only",
+            "simulation": "independent"}.get(name, "both_required")
+    store = SessionStore(folder)
+    store.start(OPERATOR, mode=mode)
+    S1, S2 = "WO-S00430-1-001", "WO-S00430-1-002"
+    if name == "pass":
+        run(store, S1, "cal", cal_result("a"))
+        run(store, S1, "test", test_only_result("b"))
+        run(store, S2, "cal", cal_result("c"))
+        run(store, S2, "test", test_only_result("d"))
+    elif name == "cutoff_fail":
+        run(store, S1, "cal", cal_result("a"))
+        run(store, S1, "test", test_only_result("b", outcome="FAIL"))
+    elif name == "stopped_interrupted":
+        run(store, S1, "cal", cal_result("a", outcome="STOPPED", ok=False, stage_status="STOPPED"))
+        store.begin_unit(S1, copy.deepcopy(RECIPE), 3, run_tests=False, run_calibration=True)  # left running
+        store = SessionStore(folder)  # restart: crash recovery marks it interrupted
+    elif name == "calibration_only":
+        run(store, S1, "cal", cal_result("a"))
+        run(store, S2, "cal", cal_result("b", ok=False, outcome="FAIL"))
+    elif name == "test_only":
+        run(store, S1, "test", test_only_result("a"))
+    elif name == "simulation":
+        run(store, S1, "cal", cal_result("a", outcome="SIMULATION", simulation=True))
+    elif name == "repeated_serial":
+        run(store, S1, "cal", cal_result("a", outcome="FAIL", ok=False))
+        run(store, S1, "cal", cal_result("b"))
+        run(store, S1, "test", test_only_result("c"))
+    else:
+        raise AssertionError(name)
+    return store
 
 
 SCENARIOS = ("pass", "cutoff_fail", "stopped_interrupted", "calibration_only", "test_only", "simulation", "repeated_serial")
@@ -216,7 +222,7 @@ class EquivalenceTests(unittest.TestCase):
     def test_outputs_match_the_inline_evidence_golden(self):
         current = {}
         for name in SCENARIOS:
-            with tempfile.TemporaryDirectory() as folder:
+            with tempfile.TemporaryDirectory() as folder, deterministic():
                 store = scenario(name, folder)
                 result = outputs(store, folder)
                 # Light summaries must equal the full ones except for the raw lists.
