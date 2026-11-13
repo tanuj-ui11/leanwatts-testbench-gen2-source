@@ -21,6 +21,7 @@ from leanwatts_can.session_store import SessionStore
 
 GOLDEN = Path(__file__).with_name("golden") / "session_equivalence.json"
 HEAVY = ("samples", "can_trace", "trace_events")
+EVIDENCE_FIELDS_UNDER_TEST = HEAVY
 OPERATOR = {"id": "OP07", "name": "R. Kumar", "role": "operator", "enabled": True}
 RECIPE = {"name": "Gen2 Ruchira V1", "cc_current": 20.0, "current_tolerance": 0.1,
           "end_voltage": 56.0, "voltage_tolerance": 0.1, "end_current": 1.5, "end_current_tolerance": 0.1,
