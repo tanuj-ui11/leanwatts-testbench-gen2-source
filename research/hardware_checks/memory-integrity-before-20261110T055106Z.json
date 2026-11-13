@@ -1,0 +1,7 @@
+{
+  "RecordedAt": "2026-11-10T05:51:06.6787634Z",
+  "RegistryPath": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity",
+  "Enabled": 1,
+  "RequestedChange": "Set only Enabled to 0 for USB-CAN driver compatibility test",
+  "Restore": "Set Enabled back to 1 after resolving incompatible driver; restart Windows"
+}

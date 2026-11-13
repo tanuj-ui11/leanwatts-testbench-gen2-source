@@ -1,0 +1,24 @@
+{
+  "CheckedUtc": "2026-11-10T05:29:30.3822857Z",
+  "InstanceId": "USB\\VID_0471&PID_1200\\6&5788826&0&1",
+  "Name": "ZLG USBCAN",
+  "DriverVersion": "1.94.0.2",
+  "DriverDate": "2017-11-27",
+  "DriverPackage": "oem18.inf",
+  "DriverArchitecture": "x64",
+  "DriverSignature": "Valid",
+  "DriverSHA256": "13919677B0084B1DA22F903732468F98C51522B87D1BC3513099F99305F4B758",
+  "PnPProblemCode": 39,
+  "PnPProblemStatus": "0xC000007B",
+  "MemoryIntegrityEnabled": 1,
+  "CodeIntegrityEvents": [
+    {
+      "Message": "Code Integrity determined that a process (System) attempted to load \\Device\\HarddiskVolume3\\Windows\\System32\\drivers\\usbcan.sys that is not compatible with hypervisor enforcement. Failure bitmap 0x2. Status 0xC0000220.",
+      "Id": 3111,
+      "TimeUtc": "2026-11-10T05:21:24.3110909Z"
+    }
+  ],
+  "CanCommunicationAttempted": false,
+  "ChargerCommandsSent": 0,
+  "UserConfirmedSetup": "Charger AC ON; DC connected; load input OFF"
+}

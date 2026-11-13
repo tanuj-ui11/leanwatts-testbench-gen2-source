@@ -1,0 +1,8 @@
+{
+  "RecordedAt": "2026-11-10T06:00:56.7103422Z",
+  "MemoryIntegrityConfigured": 1,
+  "OriginalValue": 1,
+  "RestartPerformed": false,
+  "OtherProtectionsChanged": false,
+  "Reason": "User chose GUI transfer to previously working laptop; restored the sole configuration change before any restart"
+}

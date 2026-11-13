@@ -1,0 +1,52 @@
+Third-party components in the internal portable engineering preview
+
+The runtime contains unmodified standard libraries copied from the supplied
+Python distribution. Original LICENSE files, .dist-info metadata and packaged
+license notices are retained. No lw_eol application code is included.
+The application source is provided in leanwatts_can for inspection/modification.
+Runtime libraries are separate, replaceable files; no static linking is used.
+
+Python 3.12: Python Software Foundation license (runtime/LICENSE.txt)
+  https://www.python.org/downloads/source/
+  https://docs.python.org/3/license.html
+
+PySide6 Essentials and shiboken6: Qt for Python.
+  The supplied package metadata states LGPL-3.0-only OR GPL-2.0-only OR
+  GPL-3.0-only. Preserve its metadata and included license notices.
+  https://doc.qt.io/qtforpython-6/licenses.html
+  https://code.qt.io/cgit/pyside/pyside-setup.git/
+  https://download.qt.io/official_releases/QtForPython/
+Qt shared libraries and plugins are distributed with PySide6.
+  https://doc.qt.io/qt-6/licensing.html
+  https://download.qt.io/official_releases/qt/
+License texts:
+  https://www.gnu.org/licenses/lgpl-3.0.txt
+  https://www.gnu.org/licenses/gpl-3.0.txt
+  https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+
+NumPy and its bundled binary libraries: see numpy .dist-info/licenses and
+numpy.libs for original licensing notices, including bundled dependencies.
+  https://numpy.org/
+  https://github.com/numpy/numpy
+
+pyqtgraph: MIT license, retained in its .dist-info metadata/licenses.
+  https://www.pyqtgraph.org/
+  https://github.com/pyqtgraph/pyqtgraph
+
+colorama: BSD license, retained in its .dist-info metadata/licenses.
+  https://github.com/tartley/colorama
+
+Outfit and JetBrains Mono: SIL Open Font License; full texts are included in
+leanwatts_can/fonts/OFL-Outfit.txt and OFL-JetBrainsMono.txt.
+
+Theme provenance: leanwatts_can/theme.py and the above fonts originate from
+the user-supplied LeanWatts theme. Calibration logic is separate original work.
+This package is prepared for the user's internal transfer and testing.
+
+pySerial: BSD license; original metadata/licenses retained in runtime.
+  https://github.com/pyserial/pyserial
+
+Vendor CAN SDK: zlgcan.dll and kerneldlls copied from the user-supplied Chinese
+charger application for the user's internal integration. Their original vendor
+rights and terms apply; no ownership or open-source license is claimed for them.
+

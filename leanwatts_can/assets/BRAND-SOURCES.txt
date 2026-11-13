@@ -1,0 +1,38 @@
+Leanwatts brand asset provenance — 11 November 2026
+
+leanwatts-logo.png
+Official dark-background wordmark, obtained from the company website:
+https://leanwatts.com/wp-content/uploads/2024/03/88674_Lean-Watts_DV_H_01-1-copy-1.png
+
+leanwatts-logo-light.png
+Official light-background wordmark, obtained from the company website:
+https://leanwatts.com/wp-content/uploads/2024/02/Lean-watts-color-logo-copy.png
+
+leanwatts-symbol.webp
+Official website symbol, retained as the visual reference:
+https://leanwatts.com/wp-content/uploads/2024/02/cropped-ll-192x192.webp
+
+leanwatts.ico
+Losslessly extracted RT_GROUP_ICON group 1 and its RT_ICON resources from the
+user-supplied reference application:
+LeanWatts-EoL-0.1.0-win64 (1)/LeanWatts EoL/LeanWatts EoL.exe
+Source EXE SHA-256:
+9f55399b2d036407fc349ba9298286b367ec1a74ea819c3d87017bd4e3f6f094
+Native icon sizes: 16, 32, 48, 64, 128 and 256 pixels.
+ICO SHA-256:
+48a9e9921584bc40236ceb6cd9b76ef467045edacf8381d607c8571c4d5bea63
+
+leanwatts-symbol.png
+Largest original 256-pixel PNG resource from that icon, preserved byte-for-byte.
+SHA-256:
+90b3f0da8ccea5e8bd31879f9e3bbbf552d402fa38a97d4e3a6ddeecea8989f4
+
+The extracted mark was visually compared with the official website symbol.
+Both show the same multicolour interlocking loops and blue circuit pins.
+Its original light-grey background is preserved. No logo was redrawn,
+recoloured, generated, or substituted. The source EXE was read as resource
+data only and was not executed. Reproduction utility:
+tools/extract_reference_brand_icon.py
+
+These are Leanwatts company brand assets; this file does not grant third-party
+trademark or redistribution rights beyond the company's application use.

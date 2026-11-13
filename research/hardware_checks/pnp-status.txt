@@ -1,0 +1,23 @@
+Microsoft PnP Utility
+
+Instance ID:                USB\VID_0471&PID_1200\6&5788826&0&1
+Device Description:         ZLG USBCAN
+Class Name:                 USB
+Class GUID:                 {36fc9e60-c465-11cf-8056-444553540000}
+Manufacturer Name:          ZLGMCU
+Status:                     Problem
+Problem Code:               39 (0x27) [CM_PROB_DRIVER_FAILED_LOAD]
+Problem Status:             0xC000007B
+Driver Name:                oem18.inf
+Matching Drivers:
+    Driver Name:            oem18.inf
+    Original Name:          usbcan.inf
+    Provider Name:          Guangzhou Zhiyuan Electronics Co., LTD
+    Class Name:             USB
+    Class GUID:             {36fc9e60-c465-11cf-8056-444553540000}
+    Driver Version:         11/27/2017 1.94.0.2
+    Signer Name:            Microsoft Windows Hardware Compatibility Publisher
+    Matching Device ID:     USB\VID_0471&PID_1200
+    Driver Rank:            00FF0001
+    Driver Status:          Best Ranked / Installed
+

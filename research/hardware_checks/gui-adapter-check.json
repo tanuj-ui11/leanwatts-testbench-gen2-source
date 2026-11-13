@@ -1,0 +1,30 @@
+{
+  "checked_at": "2026-11-10T05:38:54+00:00",
+  "state": "driver_blocked",
+  "summary": "The USB adapter is detected, but its Windows driver is not ready.",
+  "devices": [
+    {
+      "instance_id": "USB\\VID_0471&PID_1200\\6&5788826&0&1",
+      "name": "ZLG USBCAN",
+      "problem_code": 39,
+      "status_flags": 25191424,
+      "started": false,
+      "has_problem": true,
+      "status_error": ""
+    }
+  ],
+  "details": [
+    "Windows Code 39: the adapter driver could not be loaded.",
+    "This checks Windows device status only. CAN traffic and charger communication have not been tested.",
+    "Recent Code Integrity event 3111 names usbcan.sys: that driver did not meet HVCI/Memory Integrity policy. Together with current Code 39, this indicates a driver compatibility issue; the event is historical evidence, not a new communication test."
+  ],
+  "communication_tested": false,
+  "code_integrity_events": [
+    {
+      "event_id": 3111,
+      "timestamp": "2026-11-10T05:21:24.311090+00:00",
+      "record_id": "594026",
+      "driver": "usbcan.sys"
+    }
+  ]
+}

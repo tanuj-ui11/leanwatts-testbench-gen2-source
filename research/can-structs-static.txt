@@ -1,0 +1,67 @@
+
+ZLGCAN.ZCAN TypeFlags=0x100109
+uint acc_code
+uint acc_mask
+uint reserved
+byte filter
+byte timing0
+byte timing1
+byte mode
+
+ZLGCAN.CANFD TypeFlags=0x100109
+uint acc_code
+uint acc_mask
+uint abit_timing
+uint dbit_timing
+uint brp
+byte filter
+byte mode
+ushort pad
+uint reserved
+
+ZLGCAN.can_frame TypeFlags=0x100109
+uint can_id
+byte can_dlc
+byte __pad
+byte __res0
+byte __res1
+byte[] data Marshal=1e08
+
+ZLGCAN.canfd_frame TypeFlags=0x100109
+uint can_id
+byte len
+byte flags
+byte __res0
+byte __res1
+byte[] data Marshal=1e40
+
+ZLGCAN.ZCAN_CHANNEL_INIT_CONFIG TypeFlags=0x100111
+offset 0 uint can_type
+offset 4 ZLGCAN.ZCAN can
+offset 4 ZLGCAN.CANFD canfd
+
+ZLGCAN.ZCAN_Transmit_Data TypeFlags=0x100109
+ZLGCAN.can_frame frame
+uint transmit_type
+
+ZLGCAN.ZCAN_Receive_Data TypeFlags=0x100109
+ZLGCAN.can_frame frame
+ulong timestamp
+
+ZLGCAN.ZCAN_TransmitFD_Data TypeFlags=0x100109
+ZLGCAN.canfd_frame frame
+uint transmit_type
+
+ZLGCAN.ZCAN_ReceiveFD_Data TypeFlags=0x100109
+ZLGCAN.canfd_frame frame
+ulong timestamp
+
+ZLGCAN.ZCAN_CHANNEL_ERROR_INFO TypeFlags=0x100109
+uint error_code
+byte[] passive_ErrData Marshal=1e03
+byte arLost_ErrData
+
+ZLGCAN.IProperty TypeFlags=0x100109
+ZLGCAN.SetValueFunc SetValue
+ZLGCAN.GetValueFunc GetValue
+ZLGCAN.GetPropertysFunc GetPropertys

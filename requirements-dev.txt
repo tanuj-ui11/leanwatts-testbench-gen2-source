@@ -1,0 +1,7 @@
+# Matches the runtime bundled in the Windows release (Python 3.12, see dist/*-win64.zip).
+# Python 3.12+ is required: the app uses Path.write_text(newline=...), added in 3.10.
+PySide6-Essentials==6.12.0
+pyqtgraph==0.14.0
+pyserial==3.5
+numpy==2.5.4
+colorama==0.4.6

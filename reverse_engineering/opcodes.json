@@ -1,0 +1,1132 @@
+[
+  {
+    "Code": 0,
+    "Name": "nop",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 1,
+    "Name": "break",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 2,
+    "Name": "ldarg.0",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 3,
+    "Name": "ldarg.1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 4,
+    "Name": "ldarg.2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 5,
+    "Name": "ldarg.3",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 6,
+    "Name": "ldloc.0",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 7,
+    "Name": "ldloc.1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 8,
+    "Name": "ldloc.2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 9,
+    "Name": "ldloc.3",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 10,
+    "Name": "stloc.0",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 11,
+    "Name": "stloc.1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 12,
+    "Name": "stloc.2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 13,
+    "Name": "stloc.3",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 14,
+    "Name": "ldarg.s",
+    "Operand": "ShortInlineVar"
+  },
+  {
+    "Code": 15,
+    "Name": "ldarga.s",
+    "Operand": "ShortInlineVar"
+  },
+  {
+    "Code": 16,
+    "Name": "starg.s",
+    "Operand": "ShortInlineVar"
+  },
+  {
+    "Code": 17,
+    "Name": "ldloc.s",
+    "Operand": "ShortInlineVar"
+  },
+  {
+    "Code": 18,
+    "Name": "ldloca.s",
+    "Operand": "ShortInlineVar"
+  },
+  {
+    "Code": 19,
+    "Name": "stloc.s",
+    "Operand": "ShortInlineVar"
+  },
+  {
+    "Code": 20,
+    "Name": "ldnull",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 21,
+    "Name": "ldc.i4.m1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 22,
+    "Name": "ldc.i4.0",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 23,
+    "Name": "ldc.i4.1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 24,
+    "Name": "ldc.i4.2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 25,
+    "Name": "ldc.i4.3",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 26,
+    "Name": "ldc.i4.4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 27,
+    "Name": "ldc.i4.5",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 28,
+    "Name": "ldc.i4.6",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 29,
+    "Name": "ldc.i4.7",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 30,
+    "Name": "ldc.i4.8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 31,
+    "Name": "ldc.i4.s",
+    "Operand": "ShortInlineI"
+  },
+  {
+    "Code": 32,
+    "Name": "ldc.i4",
+    "Operand": "InlineI"
+  },
+  {
+    "Code": 33,
+    "Name": "ldc.i8",
+    "Operand": "InlineI8"
+  },
+  {
+    "Code": 34,
+    "Name": "ldc.r4",
+    "Operand": "ShortInlineR"
+  },
+  {
+    "Code": 35,
+    "Name": "ldc.r8",
+    "Operand": "InlineR"
+  },
+  {
+    "Code": 37,
+    "Name": "dup",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 38,
+    "Name": "pop",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 39,
+    "Name": "jmp",
+    "Operand": "InlineMethod"
+  },
+  {
+    "Code": 40,
+    "Name": "call",
+    "Operand": "InlineMethod"
+  },
+  {
+    "Code": 41,
+    "Name": "calli",
+    "Operand": "InlineSig"
+  },
+  {
+    "Code": 42,
+    "Name": "ret",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 43,
+    "Name": "br.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 44,
+    "Name": "brfalse.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 45,
+    "Name": "brtrue.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 46,
+    "Name": "beq.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 47,
+    "Name": "bge.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 48,
+    "Name": "bgt.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 49,
+    "Name": "ble.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 50,
+    "Name": "blt.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 51,
+    "Name": "bne.un.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 52,
+    "Name": "bge.un.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 53,
+    "Name": "bgt.un.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 54,
+    "Name": "ble.un.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 55,
+    "Name": "blt.un.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 56,
+    "Name": "br",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 57,
+    "Name": "brfalse",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 58,
+    "Name": "brtrue",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 59,
+    "Name": "beq",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 60,
+    "Name": "bge",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 61,
+    "Name": "bgt",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 62,
+    "Name": "ble",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 63,
+    "Name": "blt",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 64,
+    "Name": "bne.un",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 65,
+    "Name": "bge.un",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 66,
+    "Name": "bgt.un",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 67,
+    "Name": "ble.un",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 68,
+    "Name": "blt.un",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 69,
+    "Name": "switch",
+    "Operand": "InlineSwitch"
+  },
+  {
+    "Code": 70,
+    "Name": "ldind.i1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 71,
+    "Name": "ldind.u1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 72,
+    "Name": "ldind.i2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 73,
+    "Name": "ldind.u2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 74,
+    "Name": "ldind.i4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 75,
+    "Name": "ldind.u4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 76,
+    "Name": "ldind.i8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 77,
+    "Name": "ldind.i",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 78,
+    "Name": "ldind.r4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 79,
+    "Name": "ldind.r8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 80,
+    "Name": "ldind.ref",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 81,
+    "Name": "stind.ref",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 82,
+    "Name": "stind.i1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 83,
+    "Name": "stind.i2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 84,
+    "Name": "stind.i4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 85,
+    "Name": "stind.i8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 86,
+    "Name": "stind.r4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 87,
+    "Name": "stind.r8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 88,
+    "Name": "add",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 89,
+    "Name": "sub",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 90,
+    "Name": "mul",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 91,
+    "Name": "div",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 92,
+    "Name": "div.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 93,
+    "Name": "rem",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 94,
+    "Name": "rem.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 95,
+    "Name": "and",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 96,
+    "Name": "or",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 97,
+    "Name": "xor",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 98,
+    "Name": "shl",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 99,
+    "Name": "shr",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 100,
+    "Name": "shr.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 101,
+    "Name": "neg",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 102,
+    "Name": "not",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 103,
+    "Name": "conv.i1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 104,
+    "Name": "conv.i2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 105,
+    "Name": "conv.i4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 106,
+    "Name": "conv.i8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 107,
+    "Name": "conv.r4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 108,
+    "Name": "conv.r8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 109,
+    "Name": "conv.u4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 110,
+    "Name": "conv.u8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 111,
+    "Name": "callvirt",
+    "Operand": "InlineMethod"
+  },
+  {
+    "Code": 112,
+    "Name": "cpobj",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 113,
+    "Name": "ldobj",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 114,
+    "Name": "ldstr",
+    "Operand": "InlineString"
+  },
+  {
+    "Code": 115,
+    "Name": "newobj",
+    "Operand": "InlineMethod"
+  },
+  {
+    "Code": 116,
+    "Name": "castclass",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 117,
+    "Name": "isinst",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 118,
+    "Name": "conv.r.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 121,
+    "Name": "unbox",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 122,
+    "Name": "throw",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 123,
+    "Name": "ldfld",
+    "Operand": "InlineField"
+  },
+  {
+    "Code": 124,
+    "Name": "ldflda",
+    "Operand": "InlineField"
+  },
+  {
+    "Code": 125,
+    "Name": "stfld",
+    "Operand": "InlineField"
+  },
+  {
+    "Code": 126,
+    "Name": "ldsfld",
+    "Operand": "InlineField"
+  },
+  {
+    "Code": 127,
+    "Name": "ldsflda",
+    "Operand": "InlineField"
+  },
+  {
+    "Code": 128,
+    "Name": "stsfld",
+    "Operand": "InlineField"
+  },
+  {
+    "Code": 129,
+    "Name": "stobj",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 130,
+    "Name": "conv.ovf.i1.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 131,
+    "Name": "conv.ovf.i2.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 132,
+    "Name": "conv.ovf.i4.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 133,
+    "Name": "conv.ovf.i8.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 134,
+    "Name": "conv.ovf.u1.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 135,
+    "Name": "conv.ovf.u2.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 136,
+    "Name": "conv.ovf.u4.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 137,
+    "Name": "conv.ovf.u8.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 138,
+    "Name": "conv.ovf.i.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 139,
+    "Name": "conv.ovf.u.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 140,
+    "Name": "box",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 141,
+    "Name": "newarr",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 142,
+    "Name": "ldlen",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 143,
+    "Name": "ldelema",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 144,
+    "Name": "ldelem.i1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 145,
+    "Name": "ldelem.u1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 146,
+    "Name": "ldelem.i2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 147,
+    "Name": "ldelem.u2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 148,
+    "Name": "ldelem.i4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 149,
+    "Name": "ldelem.u4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 150,
+    "Name": "ldelem.i8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 151,
+    "Name": "ldelem.i",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 152,
+    "Name": "ldelem.r4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 153,
+    "Name": "ldelem.r8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 154,
+    "Name": "ldelem.ref",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 155,
+    "Name": "stelem.i",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 156,
+    "Name": "stelem.i1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 157,
+    "Name": "stelem.i2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 158,
+    "Name": "stelem.i4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 159,
+    "Name": "stelem.i8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 160,
+    "Name": "stelem.r4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 161,
+    "Name": "stelem.r8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 162,
+    "Name": "stelem.ref",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 163,
+    "Name": "ldelem",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 164,
+    "Name": "stelem",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 165,
+    "Name": "unbox.any",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 179,
+    "Name": "conv.ovf.i1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 180,
+    "Name": "conv.ovf.u1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 181,
+    "Name": "conv.ovf.i2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 182,
+    "Name": "conv.ovf.u2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 183,
+    "Name": "conv.ovf.i4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 184,
+    "Name": "conv.ovf.u4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 185,
+    "Name": "conv.ovf.i8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 186,
+    "Name": "conv.ovf.u8",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 194,
+    "Name": "refanyval",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 195,
+    "Name": "ckfinite",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 198,
+    "Name": "mkrefany",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 208,
+    "Name": "ldtoken",
+    "Operand": "InlineTok"
+  },
+  {
+    "Code": 209,
+    "Name": "conv.u2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 210,
+    "Name": "conv.u1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 211,
+    "Name": "conv.i",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 212,
+    "Name": "conv.ovf.i",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 213,
+    "Name": "conv.ovf.u",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 214,
+    "Name": "add.ovf",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 215,
+    "Name": "add.ovf.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 216,
+    "Name": "mul.ovf",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 217,
+    "Name": "mul.ovf.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 218,
+    "Name": "sub.ovf",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 219,
+    "Name": "sub.ovf.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 220,
+    "Name": "endfinally",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 221,
+    "Name": "leave",
+    "Operand": "InlineBrTarget"
+  },
+  {
+    "Code": 222,
+    "Name": "leave.s",
+    "Operand": "ShortInlineBrTarget"
+  },
+  {
+    "Code": 223,
+    "Name": "stind.i",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 224,
+    "Name": "conv.u",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 248,
+    "Name": "prefix7",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 249,
+    "Name": "prefix6",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 250,
+    "Name": "prefix5",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 251,
+    "Name": "prefix4",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 252,
+    "Name": "prefix3",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 253,
+    "Name": "prefix2",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 254,
+    "Name": "prefix1",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 255,
+    "Name": "prefixref",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65024,
+    "Name": "arglist",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65025,
+    "Name": "ceq",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65026,
+    "Name": "cgt",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65027,
+    "Name": "cgt.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65028,
+    "Name": "clt",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65029,
+    "Name": "clt.un",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65030,
+    "Name": "ldftn",
+    "Operand": "InlineMethod"
+  },
+  {
+    "Code": 65031,
+    "Name": "ldvirtftn",
+    "Operand": "InlineMethod"
+  },
+  {
+    "Code": 65033,
+    "Name": "ldarg",
+    "Operand": "InlineVar"
+  },
+  {
+    "Code": 65034,
+    "Name": "ldarga",
+    "Operand": "InlineVar"
+  },
+  {
+    "Code": 65035,
+    "Name": "starg",
+    "Operand": "InlineVar"
+  },
+  {
+    "Code": 65036,
+    "Name": "ldloc",
+    "Operand": "InlineVar"
+  },
+  {
+    "Code": 65037,
+    "Name": "ldloca",
+    "Operand": "InlineVar"
+  },
+  {
+    "Code": 65038,
+    "Name": "stloc",
+    "Operand": "InlineVar"
+  },
+  {
+    "Code": 65039,
+    "Name": "localloc",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65041,
+    "Name": "endfilter",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65042,
+    "Name": "unaligned.",
+    "Operand": "ShortInlineI"
+  },
+  {
+    "Code": 65043,
+    "Name": "volatile.",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65044,
+    "Name": "tail.",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65045,
+    "Name": "initobj",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 65046,
+    "Name": "constrained.",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 65047,
+    "Name": "cpblk",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65048,
+    "Name": "initblk",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65050,
+    "Name": "rethrow",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65052,
+    "Name": "sizeof",
+    "Operand": "InlineType"
+  },
+  {
+    "Code": 65053,
+    "Name": "refanytype",
+    "Operand": "InlineNone"
+  },
+  {
+    "Code": 65054,
+    "Name": "readonly.",
+    "Operand": "InlineNone"
+  }
+]

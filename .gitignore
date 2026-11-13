@@ -1,0 +1,44 @@
+# Python / tooling
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Built releases and build/verification output (published as Release assets, not source)
+dist/
+artifacts/
+tmp/
+
+# Station data (operators, sessions, reports) never belongs in the repository
+calibration_data/
+
+# Third-party / vendor software and the reference package
+JKCAN_CHARGE/
+LeanWatts-EoL-0.1.0-win64 (1)/
+research/gdutility-official/
+research/branding/official-home.html
+
+# Vendor manuals and scanned pages (copyrighted; see research/maynuo/PROTOCOL-SOURCES.md)
+research/maynuo/*.pdf
+research/maynuo/*-user-provided-*.txt
+research/maynuo/protocol-page-*.png
+
+# Decompiled vendor code (kept locally for reference only)
+reverse_engineering/*.il.txt
+reverse_engineering/vendor-il.txt
+reverse_engineering/metadata.json
+reverse_engineering/ui-fields.json
+
+# Compiled binaries (rebuilt from the C# sources in tools/ and calibration_app/)
+*.exe
+*.dll
+*.bin
+*.pdb
+
+# Chat images
+WhatsApp Image *.jpeg
+research/maynuo/*-pinout-*.png
+research/maynuo/waveshare-*.jpg
+
+# Local agent inventory (lists the owner's connected services)
+docs/claude/SKILLS-AND-MCPS.md

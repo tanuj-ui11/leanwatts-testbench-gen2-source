@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "name": "Full cycle · settled OCV, current and fixed cutoff",
+  "description": "Baseline, parameter check/update and calibration first. For tests, restart charger AC when Ready. Load stays OFF until settled open-circuit voltage passes. Then CV 49 V waits for current to build and settle. With load still ON, CC 5 A immediately tapers by 0.1 A toward 0.5 A to observe cutoff. No charger commands or parameter changes during tests.",
+  "workflow": "full_cycle",
+  "baseline": {
+    "engage_voltage": null,
+    "minimum_ramp_seconds": 18,
+    "ramp_timeout_seconds": 60,
+    "settle_seconds": 3
+  },
+  "testing": {
+    "start_method": "external_restart",
+    "procedure": "ocv_current_fixed_cutoff_v1",
+    "restart_timeout_seconds": 120
+  }
+}
