@@ -9,7 +9,7 @@ repository's own tools/build_gen2_delta.py (verified reconstruction of the compl
       --output-dir build/gen2-1.1.12 [--compiler PATH]
 
 --compiler defaults to Windows' csc.exe (as for earlier releases). On macOS/Linux pass a wrapper
-around Mono's `mcs` that accepts csc-style options (see docs/claude or the release notes).
+around Mono's `mcs` compiled against .NET Framework 4.5 reference assemblies: tools/mcs-csc-shim-net45.sh.
 Nothing is published, installed or executed by this tool; existing outputs are never overwritten.
 """
 from __future__ import annotations
