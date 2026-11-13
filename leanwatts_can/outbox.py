@@ -24,7 +24,8 @@ BACKOFF_FIRST = 15.0
 BACKOFF_MAX = 900.0
 JITTER = 0.2
 MAX_PAYLOAD_BYTES = 1024 * 1024
-MAX_HTML_CHARS = 256 * 1024
+MAX_HTML_BYTES = 256 * 1024  # the server counts UTF-8 bytes
+MAX_REPORT_JSON_BYTES = 256 * 1024
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{7,79}")
 
 
@@ -67,9 +68,14 @@ class Item:
     server: dict
 
     @property
+    def stale(self):
+        """True when the dashboard kept a newer report and wrote nothing for this one."""
+        return self.folder == "sent" and self.server.get("stale") is True
+
+    @property
     def status(self):
         if self.folder == "sent":
-            return "sent"
+            return "sent"  # a stale send is still "sent"; see Item.stale
         if self.folder == "dead":
             return "dead"
         return "failed" if self.attempts else "pending"
@@ -159,8 +165,16 @@ class Outbox:
         client_report_id = _checked_id(client_report_id)
         if not isinstance(body, dict) or not isinstance(body.get("serial"), str) or not body["serial"]:
             raise ValueError("The report has no serial number.")
-        if html is not None and (not isinstance(html, str) or len(html) > MAX_HTML_CHARS):
-            raise ValueError("The report HTML is missing or too large.")
+        if html is not None and not isinstance(html, str):
+            raise ValueError("The report HTML is not valid.")
+        if html is not None and len(html.encode("utf-8", "replace")) > MAX_HTML_BYTES:
+            raise ValueError("The report is too large to send (the HTML is over 256 KiB).")
+        try:
+            report_json = json.dumps(body.get("report"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        except (TypeError, ValueError):
+            raise ValueError("The report data is not valid.") from None
+        if body.get("report") is not None and len(report_json) > MAX_REPORT_JSON_BYTES:
+            raise ValueError("The report is too large to send (the report data is over 256 KiB).")
         existing = self._find(client_report_id)
         if existing is not None:
             return existing
@@ -201,7 +215,7 @@ class Outbox:
     def mark_sent(self, item, result=None, now=None):
         now = self._clock() if now is None else now
         result = result if isinstance(result, dict) else {}
-        server = {key: result[key] for key in ("id", "duplicate", "replaced") if key in result}
+        server = {key: result[key] for key in ("id", "duplicate", "replaced", "stale") if key in result}
         state = dict(self._state_of(item), last_error="", server=server,
                      sent_at=time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now)))
         return self._move(item, "pending", "sent", state)

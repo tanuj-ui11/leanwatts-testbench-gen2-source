@@ -178,10 +178,10 @@ def classify(scan, worklist, *, already_passed_remote=None, already_done_local=N
         if worklist.short_form_ambiguous(value):
             return _result(NOT_ON_LIST, f"{value} matches more than one serial on {wo}. Scan the full serial number.")
         return _result(NOT_ON_LIST, f"{value} is not on work order {wo}.")
+    if item.replaced_by_serial:
+        return _result(REPLACED, f"This charger was replaced by {item.replaced_by_serial}.", item)
     if item.rejected:
         return _result(REJECTED, f"{item.serial} is marked rejected on {wo}.", item)
-    if item.replaced_by_serial:
-        return _result(REPLACED, f"{item.serial} was replaced by {item.replaced_by_serial}.", item)
     if item.serial in (already_passed_remote or ()):
         return _result(ALREADY_PASSED_REMOTE, f"{item.serial} already has a passing report on the dashboard.", item)
     if item.serial in (already_done_local or ()):

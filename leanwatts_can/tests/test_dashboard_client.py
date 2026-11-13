@@ -59,6 +59,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, b"x" * (MAX_RESPONSE_BYTES + 10), {"Content-Type": "application/json"})
             if tail == "nonjson":
                 return self._send(200, b"<html>login</html>", {"Content-Type": "text/html"})
+            if tail == "read-only":
+                return self._json(403, {"error": {"code": "forbidden", "message": "This key is read-only."}})
+            if tail == "gone":
+                return self._json(404, {"error": {"code": "not_found", "message": "No such serial on this dashboard."}})
+            if tail == "conflict":
+                return self._json(409, {"detail": "A newer report exists.\x1b[31m " + KEY})
             if tail == "leaky":
                 return self._json(400, {"error": {"code": "Bad Key " + KEY}})
             return self._json(200, {"serial": tail})
@@ -139,6 +145,22 @@ class DashboardClientTests(unittest.TestCase):
         self.expect("too_large", lambda: self.client.serial("big"))
         self.expect("rejected", lambda: self.client.serial("rejected"))
         self.expect("server", lambda: self.client.serial("boom"))
+
+    def test_401_and_403_have_distinct_messages_and_keep_kind_auth(self):
+        unauth = self.expect("auth", lambda: self.client.serial("unauth"))
+        forbidden = self.expect("auth", lambda: self.client.serial("forbidden"))
+        self.assertEqual(unauth.message, "The dashboard did not accept this key (check the key in Settings > Dashboard).")
+        self.assertEqual(forbidden.message, "This key is not allowed to use the EoL API (it needs a Testing-role user with write access).")
+
+    def test_server_text_is_shown_cleaned_and_without_the_key(self):
+        missing = self.expect("not_found", lambda: self.client.serial("gone"))
+        self.assertIn("not_found", missing.message)
+        self.assertIn("No such serial on this dashboard", missing.message)
+        conflict = self.expect("rejected", lambda: self.client.serial("conflict"))
+        self.assertIn("A newer report exists.", conflict.message)
+        self.assertNotIn("\x1b", conflict.message)
+        self.assertNotIn(KEY, conflict.message)
+        self.assertEqual(self.expect("auth", lambda: self.client.serial("read-only")).status, 403)
 
     def test_error_message_carries_only_vetted_code(self):
         error = self.expect("not_found", lambda: self.client.serial("missing"))

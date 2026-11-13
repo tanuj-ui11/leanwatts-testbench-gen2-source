@@ -175,7 +175,11 @@ class SessionHistoryPage(QWidget):
         if self.outbox is None or session is None or not unit.get("serial"):
             return ""
         item = self.outbox.status_for(session.get("session_id", ""), str(unit["serial"]))
-        return item.status.capitalize() if item else "Not generated"
+        if item is None:
+            return "Not generated"
+        if item.stale:
+            return "Sent (server kept a newer report)"
+        return item.status.capitalize()
 
     def refresh_status(self, *args):
         """Re-read the dashboard column (after the outbox sends or a report is queued)."""

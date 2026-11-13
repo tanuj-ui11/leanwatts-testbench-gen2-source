@@ -96,6 +96,36 @@ class OutboxTests(unittest.TestCase):
         self.assertEqual(first.client_report_id, second.client_report_id)
         self.assertEqual(len(self.box.pending_items()), 1)
 
+    def test_stale_is_kept_and_old_sent_state_without_it_still_loads(self):
+        item = self.queue()
+        sent = self.box.mark_sent(item, {"id": "r1", "duplicate": False, "replaced": False, "stale": True, "other": 1},
+                                  self.clock.now)
+        self.assertEqual(sent.server, {"id": "r1", "duplicate": False, "replaced": False, "stale": True})
+        self.assertTrue(sent.stale)
+        self.assertEqual(sent.status, "sent")
+        state = self.root / "sent" / (CID + ".state.json")
+        data = json.loads(state.read_text(encoding="utf-8"))
+        del data["server"]["stale"]  # a sent-state file written before 1.1.12
+        state.write_text(json.dumps(data), encoding="utf-8")
+        old = self.box.sent_items()[0]
+        self.assertFalse(old.stale)
+        self.assertEqual(old.status, "sent")
+
+    def test_html_cap_counts_utf8_bytes_not_characters(self):
+        html = "\u00e9" * 200_000  # 200k characters, 400k bytes
+        self.assertLessEqual(len(html), 256 * 1024)
+        with self.assertRaisesRegex(ValueError, "too large to send"):
+            self.box.write_pending(body(), html, CID, session_id="S1", now=self.clock.now)
+        self.assertEqual(self.box.pending_items(), [])
+        ok = "\u00e9" * (128 * 1024)  # exactly 256 KiB
+        self.assertEqual(self.box.write_pending(body(), ok, CID, session_id="S1", now=self.clock.now).status, "pending")
+
+    def test_report_json_cap_counts_utf8_bytes(self):
+        big = body()
+        big["report"] = {"note": "\u00e9" * 200_000}
+        with self.assertRaisesRegex(ValueError, "too large to send"):
+            self.box.write_pending(big, "<html/>", CID, session_id="S1", now=self.clock.now)
+
     def test_replay_of_a_sent_item_never_creates_a_second_sent_item(self):
         item = self.queue()
         self.box.mark_sent(item, {"id": "r1", "duplicate": False, "replaced": False}, self.clock.now)

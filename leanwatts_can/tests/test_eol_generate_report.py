@@ -24,11 +24,14 @@ CONTRACT_KEYS = {"serial", "client_report_id", "result", "tested_at", "generated
 
 
 class FakeClient:
-    def __init__(self):
+    def __init__(self, answer=None):
         self.calls = []
+        self.answer = answer
 
     def post_report(self, payload, client_report_id):
         self.calls.append((dict(payload), client_report_id))
+        if self.answer is not None:
+            return self.answer
         return {"id": "srv-1", "serial": payload["serial"], "duplicate": False, "replaced": False}
 
 
@@ -93,6 +96,14 @@ class GenerateReportTests(unittest.TestCase):
         self.assertIn(SERIAL, payload["html"])
         self.assertEqual(self.page.units.item(0, 7).text(), "Pending")
         self.assertEqual(len(list((self.data / "outbox" / "sent").glob("*.json"))), 0)
+
+    def test_history_shows_a_distinct_status_for_a_stale_send(self):
+        self.load([pass_attempt()])
+        self.press(SERIAL)
+        client = FakeClient({"id": "srv-1", "duplicate": False, "replaced": False, "stale": True})
+        OutboxService(self.outbox, lambda: client).tick(self.outbox._clock() + 1)
+        self.page.refresh_status()
+        self.assertEqual(self.page.units.item(0, 7).text(), "Sent (server kept a newer report)")
 
     def test_client_report_id_is_stable_across_two_presses(self):
         self.load([pass_attempt()])

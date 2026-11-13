@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 from leanwatts_can import theme
 from leanwatts_can import worklist as wl
 from leanwatts_can.gui import CalibrationWindow
-from leanwatts_can.worklist import Worklist, classify, normalise_scan, split_serial
+from leanwatts_can.worklist import Worklist, WorklistItem, classify, normalise_scan, split_serial
 
 
 def entry(serial, seq, line_token, line_seq, **fields):
@@ -116,6 +116,18 @@ class ContractAndRoundTripTests(unittest.TestCase):
 
 
 class ClassifyTests(unittest.TestCase):
+    def test_replaced_wins_over_rejected_and_names_the_replacement(self):
+        both = Worklist("WO-S00220", serials=[
+            WorklistItem(serial="WO-S00220-1-005", rejected=True, replaced_by_serial="WO-S00220-1-099"),
+            WorklistItem(serial="WO-S00220-1-006", rejected=True)])
+        result = classify("WO-S00220-1-005", both)
+        self.assertEqual(result.code, wl.REPLACED)
+        self.assertEqual(result.message, "This charger was replaced by WO-S00220-1-099.")
+        self.assertIs(result.blocking, False)
+        rejected = classify("WO-S00220-1-006", both)
+        self.assertEqual(rejected.code, wl.REJECTED)
+        self.assertIs(rejected.blocking, False)
+
     def test_every_code_is_produced_and_none_blocks(self):
         wl_ = fixture()
         cases = {

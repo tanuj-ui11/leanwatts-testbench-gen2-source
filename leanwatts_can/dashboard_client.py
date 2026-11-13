@@ -60,22 +60,45 @@ def checked_base_url(value, *, allow_loopback_http=False):
     return scheme + "://" + authority + (f":{parsed.port}" if parsed.port else "")
 
 
-def _error_code(exc):
+def _error_info(exc, api_key=""):
+    """Return (code, text) from a dashboard error body. The code must match a strict pattern; the text is the
+    server's own short message, stripped of control characters, with the API key masked and the length capped."""
     try:
         body = exc.read(4096)
     except OSError:
-        return ""
+        return "", ""
     try:
-        code = json.loads(body.decode("utf-8")).get("error", {}).get("code", "")
-    except (ValueError, UnicodeError, AttributeError):
-        return ""
-    return code if isinstance(code, str) and _ERROR_CODE.fullmatch(code) else ""
+        data = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeError):
+        return "", ""
+    if not isinstance(data, dict):
+        return "", ""
+    error = data.get("error")
+    error = error if isinstance(error, dict) else {}
+    code = error.get("code", "")
+    code = code if isinstance(code, str) and _ERROR_CODE.fullmatch(code) else ""
+    text = ""
+    for candidate in (error.get("message"), error.get("detail"), data.get("detail"), data.get("message")):
+        if isinstance(candidate, str) and candidate.strip():
+            text = candidate
+            break
+    if api_key:
+        text = text.replace(api_key, "***")
+    text = " ".join("".join(c if c.isprintable() else " " for c in text).split())
+    if len(text) > 200:
+        text = text[:199].rstrip() + "\u2026"
+    return code, text
 
 
-def _status_error(status, code):
+def _status_error(status, code, text=""):
     suffix = f" ({code})" if code else ""
-    if status in (401, 403):
-        return DashboardError("auth", status, "The dashboard did not accept the API key. Check the key in Settings > Dashboard.")
+    text = text.rstrip(".")
+    if text and text != code:
+        suffix += ": " + text
+    if status == 401:
+        return DashboardError("auth", status, "The dashboard did not accept this key (check the key in Settings > Dashboard).")
+    if status == 403:
+        return DashboardError("auth", status, "This key is not allowed to use the EoL API (it needs a Testing-role user with write access).")
     if status == 404:
         return DashboardError("not_found", status, "The dashboard does not have this item" + suffix + ".")
     if status == 413:
@@ -117,8 +140,9 @@ class DashboardClient:
                 status = response.status
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
         except HTTPError as exc:
-            # Never copy headers, bodies or the key into messages; only a vetted error code.
-            raise _status_error(exc.code, _error_code(exc)) from None
+            # Never copy headers or the key into messages; only a vetted error code and the server's short text.
+            code, text = _error_info(exc, self._api_key)
+            raise _status_error(exc.code, code, text) from None
         except (URLError, socket.timeout, OSError):
             raise DashboardError("network", None,
                                  "Could not reach the dashboard over HTTPS. Check this laptop's network connection.") from None

@@ -352,7 +352,7 @@ _CSS = """
 .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 22px;margin-top:16px}
 .meta div span{display:block;font-size:12px;color:var(--mute)}.meta div b{font-weight:600}
 h2{font-size:15px;margin:0 0 10px}table{width:100%;border-collapse:collapse}th{font-size:12px;color:var(--mute);font-weight:600;text-align:left;border-bottom:1px solid var(--line);padding:6px 8px}
-td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}tr:last-child td{border-bottom:0}.num{font-variant-numeric:tabular-nums}.r{text-align:right}
+td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}tr:last-child td{border-bottom:0}.num{font-variant-numeric:tabular-nums}.r{text-align:right}.nw{white-space:nowrap;overflow-wrap:normal;width:1%}
 tr.bad td{background:var(--failbg)}.note{color:var(--mute);font-size:12.5px;margin-top:2px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:700px){.two{grid-template-columns:1fr}}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px}.kv span{color:var(--mute)}
@@ -439,7 +439,7 @@ def render_html(report):
         duration = f"{row['duration_s']} s" if row.get("duration_s") is not None else "—"
         rows.append(f'<tr class="{"bad" if failing else ""}"><td><b>{e(row.get("name"))}</b></td>'
                     f'<td class="num">{e(required(row))}</td><td class="num"><b>{e(measure(row))}</b>{note}</td>'
-                    f'<td class="num r">{e(duration)}</td><td><span class="badge {badge}">{e(status)}</span></td></tr>')
+                    f'<td class="num r nw">{e(duration)}</td><td class="nw"><span class="badge {badge}">{e(status)}</span></td></tr>')
 
     def kv(section, labels):
         data = report.get(section) or {}
@@ -466,7 +466,7 @@ def render_html(report):
 <div class="meta"><div><span>Tested by</span><b>{e(operator_text)}</b></div><div><span>Finished (IST · UTC)</span><b>{e(finished)}</b></div>
 <div><span>Total time</span><b>{e(total)}</b></div><div><span>Station</span><b>{e(report.get('station'))}</b></div>
 <div><span>Software</span><b>{e(software.get('name'))} {e(software.get('version'))}</b></div><div><span>Attempts for this serial</span><b>{attempts}</b></div></div></div>
-<div class="card"><h2>Results by stage</h2><table><thead><tr><th>Stage</th><th>Required</th><th>Measured / result</th><th class="r">Time</th><th>Status</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+<div class="card"><h2>Results by stage</h2><table><thead><tr><th>Stage</th><th>Required</th><th>Measured / result</th><th class="r nw">Time</th><th class="nw">Status</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
 <div class="two"><div class="card"><h2>Calibration</h2><div class="kv">{calibration_kv}</div></div><div class="card"><h2>Tests</h2><div class="kv">{tests_kv}</div></div></div>
 <div class="card"><h2>Sign-off</h2><div class="sign"><div>Tested by · {e(operator_text)} · {e(finished)}</div><div>Reviewed by · name · date · disposition (release / rework / hold)</div></div></div>
 <div class="card foot"><b>Traceability.</b> Report <code>{e(report.get('report_id'))}</code> · session <code>{e(evidence.get('session_id'))}</code> · attempts <code>{e(attempt_text)}</code> · recipe sha256 <code>{e(sha)}</code> · {e(identity_text)}.<br>Calibration PASS means the target was reached and the save request was accepted by the charger; retention after an AC power cycle is not verified. Test stages used an operator AC restart and sent no CAN commands.</div></div></body></html>"""
