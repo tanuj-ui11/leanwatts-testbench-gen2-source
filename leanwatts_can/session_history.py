@@ -256,7 +256,7 @@ class SessionHistoryPage(QWidget):
             from .version import VERSION
             generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
             report = eol_report.build_report(session=session, serial=serial, station=station,
-                                             software_version=VERSION, generated_at=generated_at)
+                                             now_utc=datetime.now().astimezone())
             html_text = eol_report.render_html(report)
             body = report_body(report, html_text, station=station, generated_at=generated_at)
             client_id = report_client_id(station, session["session_id"], serial, attempt_ids[-1])
