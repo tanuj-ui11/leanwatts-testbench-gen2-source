@@ -2,6 +2,8 @@
 import json
 import os
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -177,11 +179,21 @@ class WorkOrderPageTests(unittest.TestCase):
             guard.stop()
         self.temp.cleanup()
 
+    def settle(self, timeout=5.0):
+        """Wait for the background download to deliver its result on the GUI thread."""
+        end = time.monotonic() + timeout
+        while self.page._downloading and time.monotonic() < end:
+            self.app.processEvents()
+            time.sleep(0.005)
+        self.app.processEvents()
+        self.assertFalse(self.page._downloading, "download did not finish")
+
     def test_download_button_uses_injected_fetch_and_keeps_list_in_memory(self):
         fake = Mock(return_value=CONTRACT)
         self.page.fetch_worklist = fake
         self.page.work_order.setText(" WO-S00220 ")
         self.page.download_serials.click()
+        self.settle()
         fake.assert_called_once_with("WO-S00220")
         self.assertEqual(self.page._worklist.wo_number, "WO-S00220")
         self.assertIn("7 serials", self.page.worklist_status.text())
@@ -189,6 +201,89 @@ class WorkOrderPageTests(unittest.TestCase):
         written = [p for p in Path(self.temp.name).rglob("*") if p.is_file()]
         for path in written:
             self.assertNotIn("WO-S00220-1-001", path.read_text(errors="ignore"), path)
+
+    def slow_fetch(self, payload=CONTRACT, error=None):
+        gate, started = threading.Event(), threading.Event()
+        calls = []
+
+        def fetch(reference):
+            calls.append(reference)
+            started.set()
+            gate.wait(5)
+            if error is not None:
+                raise error
+            return payload
+
+        return fetch, gate, started, calls
+
+    def test_download_does_not_block_and_applies_the_list_when_done(self):
+        fetch, gate, started, calls = self.slow_fetch()
+        self.page.fetch_worklist = fetch
+        self.page.work_order.setText("WO-S00220")
+        began = time.monotonic()
+        self.page.download_serials.click()
+        self.assertLess(time.monotonic() - began, 1.0)
+        self.assertTrue(started.wait(5))
+        self.assertFalse(self.page.download_serials.isEnabled())
+        self.assertEqual(self.page.download_serials.text(), "Downloading\u2026")
+        self.assertIn("Downloading", self.page.detail.text())
+        self.assertIsNone(self.page._worklist)
+        gate.set()
+        self.settle()
+        self.assertEqual(self.page._worklist.wo_number, "WO-S00220")
+        self.assertEqual(self.page.download_serials.text(), "Download serials")
+        self.assertTrue(self.page.download_serials.isEnabled())
+        self.assertIn("Downloaded 7 serials", self.page.detail.text())
+
+    def test_download_error_is_shown_and_the_button_recovers(self):
+        fetch, gate, started, calls = self.slow_fetch(error=ValueError("Dashboard key rejected"))
+        self.page.fetch_worklist = fetch
+        self.page.work_order.setText("WO-S00220")
+        self.page.download_serials.click()
+        gate.set()
+        self.settle()
+        self.assertEqual(self.page.detail.text(), "Serials could not be downloaded: Dashboard key rejected")
+        self.assertIsNone(self.page._worklist)
+        self.assertTrue(self.page.download_serials.isEnabled())
+        self.assertEqual(self.page.download_serials.text(), "Download serials")
+
+    def test_double_press_is_ignored_while_downloading(self):
+        fetch, gate, started, calls = self.slow_fetch()
+        self.page.fetch_worklist = fetch
+        self.page.work_order.setText("WO-S00220")
+        self.page.download_serials.click()
+        self.assertTrue(started.wait(5))
+        self.page.download_serials.click()
+        self.page._download_worklist()
+        gate.set()
+        self.settle()
+        self.assertEqual(calls, ["WO-S00220"])
+
+    def test_result_is_ignored_when_the_work_order_changed_meanwhile(self):
+        fetch, gate, started, calls = self.slow_fetch()
+        self.page.fetch_worklist = fetch
+        self.page.work_order.setText("WO-S00220")
+        self.page.download_serials.click()
+        self.assertTrue(started.wait(5))
+        self.page.work_order.setText("WO-S00999")
+        gate.set()
+        self.settle()
+        self.assertIsNone(self.page._worklist)
+        self.assertTrue(self.page.download_serials.isEnabled())
+        self.assertEqual(self.page.download_serials.text(), "Download serials")
+        self.assertNotIn("Downloaded", self.page.detail.text())
+
+    def test_result_is_ignored_after_the_page_is_closing(self):
+        fetch, gate, started, calls = self.slow_fetch()
+        self.page.fetch_worklist = fetch
+        self.page.work_order.setText("WO-S00220")
+        self.page.download_serials.click()
+        self.assertTrue(started.wait(5))
+        self.page._closing = True
+        gate.set()
+        self.settle()
+        self.page._closing = False
+        self.assertIsNone(self.page._worklist)
 
     def test_download_without_dashboard_says_so(self):
         self.page.fetch_worklist = None
@@ -201,6 +296,7 @@ class WorkOrderPageTests(unittest.TestCase):
         self.page.fetch_worklist = Mock(side_effect=OSError("network unreachable"))
         self.page.work_order.setText("WO-S00220")
         self.page.download_serials.click()
+        self.settle()
         self.assertIn("could not be downloaded", self.page.detail.text())
         self.assertIsNone(self.page._worklist)
 

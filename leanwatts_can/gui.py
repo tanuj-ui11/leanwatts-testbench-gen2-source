@@ -119,6 +119,7 @@ class CalibrationWindow(QMainWindow):
         self.recipes.profiles_changed.connect(self.operator_page.set_profiles)
         self.recipes.profiles_changed.connect(self.test_page.set_profiles)
         self.recipes.profiles_changed.connect(self.firmware_page.set_profiles)
+        self.operator_page.station_name = lambda: self.dashboard_settings.settings()["station_name"]
         self.operator_page.live_readiness = self._operator_live_reason
         self.operator_page.live_run_factory = self._operator_live_factory
         self.test_controller = TestProgramController(self, self.test_page)

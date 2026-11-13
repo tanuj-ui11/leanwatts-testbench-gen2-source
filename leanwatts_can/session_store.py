@@ -478,7 +478,8 @@ class SessionStore:
                 return "This session is Test only. Start a new session to run calibration."
             return ""
 
-    def begin_unit(self, serial, recipe, revision, *, run_tests=True, run_calibration=True, serial_override=False):
+    def begin_unit(self, serial, recipe, revision, *, run_tests=True, run_calibration=True, serial_override=False,
+                   station=None):
         from .serial_numbers import validate_serial
         error = validate_serial(str(serial), allow_custom=serial_override)
         if error:
@@ -499,7 +500,12 @@ class SessionStore:
             if reason:
                 raise ValueError(reason)
             attempt_id = uuid.uuid4().hex
-            self._active["units"].append(dict(attempt_id=attempt_id,
+            # Who ran this attempt and where, recorded at the start so an interrupted attempt still carries it.
+            session_operator = self._active.get("operator")
+            operator = ({key: (str(session_operator[key]) if session_operator.get(key) is not None else None)
+                         for key in ("id", "name", "role")} if isinstance(session_operator, dict) else None)
+            station = str(station).strip()[:120] if isinstance(station, str) and station.strip() else None
+            self._active["units"].append(dict(attempt_id=attempt_id, operator=operator, station=station,
                 sequence=len(self._active["units"]) + 1, serial=serial, serial_override=serial_override,
                 started_at=now_text(), finished_at=None, recipe_name=recipe_data.get("name", ""),
                 recipe_revision=revision, recipe=recipe_data, calibration_result="RUNNING" if run_calibration else "NOT RUN",
@@ -534,8 +540,14 @@ class SessionStore:
                 if key in incoming and key in unit and incoming[key] != unit[key]:
                     raise ValueError("The recorded workflow cannot change after starting a charger.")
             protected = {key: unit[key] for key in ("attempt_id", "sequence", "serial", "started_at", "recipe", "recipe_name", "recipe_revision")}
+            begun_operator, begun_station = unit.get("operator"), unit.get("station")
             unit.update(incoming)
             unit.update(protected)
+            # Keep what was recorded at the start unless the finish carries something better.
+            if isinstance(begun_operator, dict) and begun_operator.get("id"):
+                unit["operator"] = begun_operator
+            if begun_station and str(unit.get("station") or "").strip() in ("", "UNKNOWN STATION"):
+                unit["station"] = begun_station
             unit["finished_at"] = incoming.get("finished_at") or now_text()
             unit["failure_reason"] = failure_reason(unit)
             self._save()

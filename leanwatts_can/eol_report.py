@@ -47,6 +47,7 @@ FLAG_LABELS = {
 CALIBRATION_LABELS = (
     ("parameters", "Charger parameters"), ("parameters_written", "Parameters written"),
     ("current_duty", "Current duty"), ("voltage_duty", "Voltage duty"),
+    ("current_adjustments", "Current duty adjustments"), ("voltage_adjustments", "Voltage duty adjustments"),
     ("calibration_load_cv_v", "Calibration load CV (V)"), ("calibration_load_cc_a", "Calibration load CC (A)"),
 )
 TEST_LABELS = (
@@ -98,6 +99,26 @@ def _aware_utc(value):
 
 def _note(text, limit=NOTE_WORDS):
     return " ".join(str(text or "").split()[:limit])
+
+
+_ADJUSTMENT_EVENT = re.compile(r"^\S+\s+(Current|Voltage) (?:duty \d|direction probe \d+:)")
+
+
+def _adjustment_counts(record):
+    """Duty adjustments per axis, counted from the calibration events the engine already records.
+
+    Each tuning step ("Current duty 73.6; ...") and each direction probe step is one duty write.
+    None when the record carries no event list (older records), never a guess.
+    """
+    events = record.get("events") if isinstance(record, dict) else None
+    if not isinstance(events, list):
+        return {"current": None, "voltage": None}
+    counts = {"Current": 0, "Voltage": 0}
+    for event in events:
+        match = _ADJUSTMENT_EVENT.match(str(event))
+        if match:
+            counts[match.group(1)] += 1
+    return {"current": counts["Current"], "voltage": counts["Voltage"]}
 
 
 def _find(records, names):
@@ -210,7 +231,9 @@ def build_report(session, serial, *, station, now_utc):
         failure = {"stage": "Process", "observed": reason, "required": None}
 
     session_operator = session.get("operator") if isinstance(session.get("operator"), dict) else {}
-    attempt_operator = last.get("operator") if isinstance(last.get("operator"), dict) else session_operator
+    # Recorded when the attempt began, so an interrupted attempt carries it; older records fall back to the session.
+    recorded_operator = last.get("operator") if isinstance(last.get("operator"), dict) else {}
+    attempt_operator = recorded_operator if (recorded_operator.get("id") or recorded_operator.get("name")) else session_operator
     operator = {key: attempt_operator.get(key) for key in ("id", "name", "role")}
     attempt_station = str(last.get("station") or "").strip()
     station_value = (attempt_station if attempt_station and attempt_station != UNKNOWN_STATION
@@ -235,11 +258,14 @@ def build_report(session, serial, *, station, now_utc):
     test_record = summary.get("test") if isinstance(summary.get("test"), dict) else {}
     preflight = summary.get("preflight_result") if isinstance(summary.get("preflight_result"), dict) else {}
     written = preflight.get("updated_fields")
+    adjustments = _adjustment_counts(calibration_record) if calibration_record else {"current": None, "voltage": None}
     calibration = {
         "parameters": preflight.get("status"),
         "parameters_written": list(written) if isinstance(written, list) else [],
         "current_duty": calibration_record.get("current_duty") if _finite(calibration_record.get("current_duty")) else None,
         "voltage_duty": calibration_record.get("voltage_duty") if _finite(calibration_record.get("voltage_duty")) else None,
+        "current_adjustments": adjustments["current"],
+        "voltage_adjustments": adjustments["voltage"],
         "calibration_load_cv_v": _num(recipe.get("current_cal_load_voltage")),
         "calibration_load_cc_a": _num(recipe.get("voltage_cal_load_current")),
     }
@@ -260,6 +286,8 @@ def build_report(session, serial, *, station, now_utc):
         load_text = f"model 0x{model:04X} · firmware 0x{firmware:04X}" + (f" · port {probe['port']}" if probe.get("port") else "")
     adapter_text = (f"index {adapter['index']} · {adapter['bitrate']} bit/s"
                     if type(adapter.get("index")) is int and type(adapter.get("bitrate")) is int else None)
+    # The app reads no charger firmware/software-version frame today (observations hold status, fault word and
+    # parameters only), so this stays None and the report says "not recorded" rather than inventing a value.
     identity = {"load": load_text, "charger_fw": None, "can_adapter": adapter_text}
 
     elapsed = [item.get("elapsed_seconds") for item in attempts if _finite(item.get("elapsed_seconds"))]
@@ -344,7 +372,7 @@ def _stamp(iso_text, zone_label):
 
 def _show(value):
     if value is None:
-        return "—"
+        return "not recorded"
     if isinstance(value, list):
         return ", ".join(str(item) for item in value) if value else "none"
     if isinstance(value, float):
@@ -422,7 +450,7 @@ def render_html(report):
     identity = report.get("identity") or {}
     identity_text = " · ".join(part for part in (
         f"load {identity['load']}" if identity.get("load") else None,
-        f"charger firmware {identity['charger_fw']}" if identity.get("charger_fw") else "charger firmware not captured",
+        f"charger firmware {identity['charger_fw']}" if identity.get("charger_fw") else "charger firmware not recorded",
         f"CAN adapter {identity['can_adapter']}" if identity.get("can_adapter") else None) if part)
     evidence = report.get("evidence") or {}
     attempt_text = ", ".join(str(item)[:12] for item in evidence.get("attempt_ids") or []) or "—"

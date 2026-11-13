@@ -242,6 +242,84 @@ class SizeTests(unittest.TestCase):
         self.assertLessEqual(len(json.dumps(report).encode("utf-8")), 256 * 1024)
 
 
+class InterruptedAttemptTests(unittest.TestCase):
+    def interrupted(self, **extra):
+        return attempt("a1", 1, outcome="INTERRUPTED", calibration_result="INCOMPLETE", test_result="NOT RUN",
+                       stages=[], cal=None, test=None, run_tests=False, preflight_result=None, **extra)
+
+    def test_interrupted_attempt_uses_operator_and_station_recorded_at_begin(self):
+        begun = self.interrupted(operator={"id": "OP09", "name": "S. Rao", "role": "lead"}, station="LW-EOL-02")
+        report = build_report(session([begun]), SERIAL, station="LW-EOL-01", now_utc=NOW)
+        self.assertEqual(report["verdict"], "INCOMPLETE")
+        self.assertEqual(report["operator"], {"id": "OP09", "name": "S. Rao", "role": "lead"})
+        self.assertEqual(report["station"], "LW-EOL-02")
+
+    def test_older_record_without_the_fields_falls_back_to_session_and_settings(self):
+        older = self.interrupted(operator=None, station=None)
+        report = build_report(session([older]), SERIAL, station="LW-EOL-01", now_utc=NOW)
+        self.assertEqual(report["operator"], {"id": "OP07", "name": "R. Kumar", "role": "operator"})
+        self.assertEqual(report["station"], "LW-EOL-01")
+        absent = self.interrupted()
+        del absent["operator"], absent["station"]
+        report = build_report(session([absent]), SERIAL, station="LW-EOL-01", now_utc=NOW)
+        self.assertEqual(report["operator"]["id"], "OP07")
+        self.assertEqual(report["station"], "LW-EOL-01")
+
+
+EVENTS = [
+    "2026-11-12T10:41:23.717+00:00  Started calibration.",
+    "2026-11-12T10:42:00.685+00:00  Current direction probe 1: duty 74.6; baseline 20.61 A.",
+    "2026-11-12T10:42:02.942+00:00  Current duty 73.6; measured 20.64 A; requested output step 0.479409 A; estimated 0.3.",
+    "2026-11-12T10:42:05.188+00:00  Current duty 72.7; measured 20.36 A; requested output step 0.27 A; estimated 0.27.",
+    "2026-11-12T10:42:07.460+00:00  Current duty 72.4; measured 20.11 A; requested output step 0.1 A; estimated 0.09.",
+    "2026-11-12T10:42:18.793+00:00  Voltage direction probe 1: duty 82.2; baseline 57.37 V.",
+    "2026-11-12T10:42:21.028+00:00  Voltage duty 81.2; measured 57.41 V; requested output step 1.05 V; estimated 0.37.",
+    "2026-11-12T10:42:23.572+00:00  Voltage duty 80.4; measured 56.74 V; requested output step 0.55 V; estimated 0.53.",
+    "2026-11-12T10:42:30.370+00:00  Voltage duty 80.1; measured 56.07 V; requested output step 0.05 V; estimated 0.07.",
+    "2026-11-12T10:42:37.237+00:00  CALIBRATED: Current duty and voltage save requests were accepted.",
+]
+
+
+class CalibrationDetailTests(unittest.TestCase):
+    def report(self, record):
+        unit = attempt("a1", 1, outcome="PASS", calibration_result="PASS", test_result="PASS",
+                       stages=copy.deepcopy(PASS_STAGES), cal=record, test=copy.deepcopy(TEST_PASS_RECORD),
+                       preflight_result={"status": "PASS", "updated_fields": []})
+        return build_report(session([unit]), SERIAL, station="LW-EOL-01", now_utc=NOW)
+
+    def test_adjustment_counts_per_axis_come_from_recorded_events(self):
+        report = self.report(dict(cal_record(20.03, 56.03), events=EVENTS))
+        self.assertEqual(report["calibration"]["current_adjustments"], 4)
+        self.assertEqual(report["calibration"]["voltage_adjustments"], 4)
+
+    def test_zero_is_a_real_count_when_events_exist_without_adjustments(self):
+        report = self.report(dict(cal_record(20.03, 56.03), events=[EVENTS[0]]))
+        self.assertEqual((report["calibration"]["current_adjustments"], report["calibration"]["voltage_adjustments"]), (0, 0))
+
+    def test_missing_events_leave_counts_null_and_the_report_says_not_recorded(self):
+        report = self.report(cal_record(20.03, 56.03))
+        self.assertIsNone(report["calibration"]["current_adjustments"])
+        self.assertIsNone(report["calibration"]["voltage_adjustments"])
+        page = render_html(report)
+        self.assertIn("Current duty adjustments</span><b>not recorded</b>", page)
+        self.assertIn("Voltage duty adjustments</span><b>not recorded</b>", page)
+
+    def test_counts_are_shown_in_the_html(self):
+        page = render_html(self.report(dict(cal_record(20.03, 56.03), events=EVENTS)))
+        self.assertIn("Current duty adjustments</span><b>4</b>", page)
+        self.assertIn("Voltage duty adjustments</span><b>4</b>", page)
+
+    def test_charger_firmware_is_null_because_the_app_never_reads_it(self):
+        # Charger observations hold status, fault word and parameters only; the load's firmware is not the charger's.
+        record = dict(cal_record(20.03, 56.03), charger_observations={"outputVoltage": 0.8, "statusByte": 0, "faultWord": 0})
+        report = self.report(record)
+        self.assertIsNone(report["identity"]["charger_fw"])
+        self.assertIn("0x002A", report["identity"]["load"])
+        page = render_html(report)
+        self.assertIn("charger firmware not recorded", page)
+        self.assertNotIn("charger firmware 0x", page)
+
+
 class HtmlTests(unittest.TestCase):
     def test_values_are_escaped(self):
         hostile = dict(pass_attempt(), operator={"id": "OP1", "name": "<script>alert(1)</script>", "role": "operator"})
