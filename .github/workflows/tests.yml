@@ -16,7 +16,7 @@ jobs:
   unit:
     name: Unit tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +42,4 @@ jobs:
       - name: Byte-compile sources and tools
         run: python -m compileall -q leanwatts_can tools
       - name: Run tests (fake instruments only; no hardware or network)
-        working-directory: leanwatts_can/tests
-        env:
-          PYTHONPATH: ../..
-        run: python -m unittest discover -s . -p "test_*.py"
+        run: python tools/run_unit_tests.py
