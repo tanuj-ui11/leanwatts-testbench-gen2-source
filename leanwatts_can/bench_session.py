@@ -270,7 +270,9 @@ class BenchSession:
             self.probe_result = dict(identity=asdict(identity), label=identity.label, reference_identity=reference,
                                      protocol_source=identity.source, reading=asdict(reading),
                                      commissioned_mapping=self._probe_commissioned,
-                                     instrument_writes=False, can_accessed=False)
+                                     instrument_writes=False, can_accessed=False,
+                                     model_code=identity.model_code, firmware_code=identity.firmware_code,
+                                     port=str(getattr(getattr(load, "settings", None), "port", "")).strip().upper())
             return copy.deepcopy(self.probe_result)
         finally:
             try:

@@ -21,3 +21,25 @@ def validate_serial(value, *, allow_custom=False):
     if not allow_custom and STANDARD_SERIAL.fullmatch(serial) is None:
         return "Use WO-S00430-1-001 or WO-S00261-BS1-019 format, or select Other number."
     return ""
+
+
+# Standard (WO-S00429-1-045, WO-S00318-BS1-001) and legacy (WO-S00125-001) shapes, parsed only.
+SERIAL_PARTS = re.compile(r"(WO-S[0-9]{5})-(?:([0-9]+|BS[0-9]+)-)?([0-9]{3})", re.ASCII)
+
+
+def split_serial_parts(value):
+    """Return (work_order, token, seq_text) for a serial of either shape, otherwise None. Never guesses."""
+    if not isinstance(value, str):
+        return None
+    match = SERIAL_PARTS.fullmatch(value)
+    if match is None:
+        return None
+    return match.group(1), match.group(2), match.group(3)
+
+
+def strip_scan_noise(value):
+    """Remove scanner framing: CR/LF, surrounding whitespace and a leading AIM symbology prefix (for example ]C1)."""
+    if value is None:
+        return ""
+    text = str(value).replace("\r", "").replace("\n", "").strip()
+    return re.sub(r"^\][A-Za-z][0-9]", "", text).strip()

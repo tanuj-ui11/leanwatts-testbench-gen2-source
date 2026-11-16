@@ -23,6 +23,7 @@ class FakeSerial:
         self.model, self.firmware, self.faults = 8437, 9, 0
         self.transform = None
         self.ignore_write = False
+        self.apply_on_command_only = False  # bench behaviour: IFIX alone does not move a running CC load
         self.fragment = 100
 
     def reset_input_buffer(self):
@@ -58,12 +59,16 @@ class FakeSerial:
                     command = struct.unpack(">H", request[7:9])[0]
                     if command in (1, 2):
                         self.mode = self.cc_code if command == 1 else self.cv_code
+                        if command == 1 and self.apply_on_command_only and self.input_on:
+                            self.current = self.current_set  # regulator takes the new IFIX only now
                     elif command in (42, 43):
                         self.input_on = command == 42
                     else:
                         raise AssertionError(f"Unexpected command {command}")
                 elif register == 0x0A01:
                     self.current_set = struct.unpack(">f", request[7:11])[0]
+                    if self.input_on and not self.apply_on_command_only:
+                        self.current = self.current_set
                 elif register == 0x0A03:
                     self.voltage_set = struct.unpack(">f", request[7:11])[0]
                 else:
@@ -265,9 +270,42 @@ class MaynuoTests(unittest.TestCase):
         prior = len(self.writes())
         self.assertTrue(self.load.set_load_current(1.5))
         new = self.writes()[prior:]
-        self.assertEqual(len(new), 1)
-        self.assertEqual(new[0][2:4], bytes.fromhex("0A 01"))
+        # New current, then the CC command that applies it; never an input ON/OFF command.
+        self.assertEqual([bytes(w[2:4]) for w in new], [bytes.fromhex("0A 01"), bytes.fromhex("0A 00")])
+        self.assertEqual(struct.unpack(">H", new[1][7:9])[0], 1)
         self.assertTrue(self.serial.input_on)
+
+    def test_continuous_cc_step_reaches_the_running_regulator(self):
+        # Bench evidence: with the input ON, writing IFIX alone leaves the load drawing the old
+        # current (the cutoff sweep stuck at 5 A). The new current must actually be applied.
+        self.serial.apply_on_command_only = True
+        self.ready()
+        self.load.enable_remote()
+        self.load.configure("CC", 5.0)
+        self.load.set_input(True)
+        self.serial.current = 5.0
+        for current in (4.9, 4.8, 4.7):
+            with self.subTest(current=current):
+                self.assertTrue(self.load.set_load_current(current))
+                self.assertAlmostEqual(self.serial.current, current, places=5)
+        self.assertTrue(self.serial.input_on)
+        self.assertEqual(self.serial.mode, self.serial.cc_code)
+
+    def test_continuous_cc_step_failing_to_apply_is_an_error_not_a_stall(self):
+        self.ready()
+        self.load.enable_remote()
+        self.load.configure("CC", 2.0)
+        self.load.set_input(True)
+        original = self.serial.write
+        def drop_cc_command(request):
+            if request[1] == 16 and struct.unpack(">H", request[2:4])[0] == 0x0A00 and struct.unpack(">H", request[7:9])[0] == 1:
+                self.serial.buffer = frame(request[:6])  # acknowledged, but the mode is not confirmed below
+                self.serial.mode = self.serial.cv_code
+                return len(request)
+            return original(request)
+        self.serial.write = drop_cc_command
+        with self.assertRaisesRegex(MaynuoError, "not confirmed"):
+            self.load.set_load_current(1.5)
 
     def test_serial_validation_and_lazy_import(self):
         for settings in (SerialSettings(""), SerialSettings("X", address=0), SerialSettings("X", parity="Q"),

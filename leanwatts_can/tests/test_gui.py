@@ -140,6 +140,41 @@ class GuiTests(unittest.TestCase):
         for row in range(page.results.rowCount()):
             self.assertIn(page.results.item(row, 4).text(), ("Pending", "NOT RUN"))
 
+    def other_number_unit(self, serial="1235"):
+        w = self.window
+        self.save_variant()
+        w.operator_page.set_mode("simulation")
+        self.login(w.operator_page)
+        w.operator_page.other_number.setChecked(True)
+        self.run_simulated_unit(serial)
+        return w.operator_page
+
+    def test_other_number_choice_survives_the_run_for_the_same_serial(self):
+        # Operators calibrate a unit with Other number, then press Test on the same
+        # charger: the choice belongs to that serial and must not be dropped by the run.
+        page = self.other_number_unit()
+        self.assertEqual(page.serial.text(), "1235")
+        self.assertTrue(page.other_number.isChecked())
+        self.assertEqual(page.other_number.text(), "Other number ✓")
+        self.assertEqual(page.test_only.toolTip(), "")
+        self.assertTrue(page.test_only.isEnabled())
+
+    def test_other_number_choice_does_not_carry_to_a_different_serial(self):
+        page = self.other_number_unit()
+        page.serial.setText("1236")
+        self.assertFalse(page.other_number.isChecked())
+        self.assertEqual(page.other_number.text(), "Other number")
+        self.assertIn("Other number", page.test_only.toolTip())
+        page.serial.setText("1235")  # back to the original text: the choice is not resurrected
+        self.assertFalse(page.other_number.isChecked())
+
+    def test_explicit_other_number_toggle_after_a_run_is_respected(self):
+        page = self.other_number_unit()
+        page.other_number.setChecked(False)
+        page.serial.setText("1235")
+        self.assertFalse(page.other_number.isChecked())
+        self.assertIn("Other number", page.test_only.toolTip())
+
     def test_no_outer_scroll_and_laptop_layout(self):
         w = self.window
         minimum = w.minimumSize()

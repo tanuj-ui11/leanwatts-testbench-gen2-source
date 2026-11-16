@@ -187,6 +187,7 @@ installer preserves and imports it (`:584-596`). It is git-ignored, and the in-r
 | `appearance.json` | `theme.save_theme` `theme.py:249` | Theme key. |
 | `update-settings.json`, `*.dpapi`, `updates/` | `updater.py:323,340,270`; `update_credentials.py:12-13` | Legacy update source, tokens, downloaded installers. |
 | `sessions/<session_id>.json` | `SessionStore._save` `session_store.py:575` | **Source of truth** for production results (schema below). |
+| `sessions/<session_id>.evidence/<attempt_id>.json` | `SessionStore._externalize_unit` | Raw `samples`, `can_trace`, `trace_events` of one finished attempt (`calibration` and `test` records), written atomically before the session JSON drops them. The attempt keeps `evidence_sidecar{schema,file,counts}` as the pointer. Read with `SessionStore.load_evidence` / `hydrate_session`; the History "Detailed record (*.json)" export puts them back inline (`export_record`). A failed sidecar write leaves the lists inline and logs it. Session files written before sidecars existed keep their inline lists, load unchanged, and an open one is moved over once at start-up. |
 | `sessions/<id>.csv`, `<id>.html`, `<id>.detail.html` | `_write_reports` `:585-790` | Derived. One CSV row per serial summary, a printable summary, and a detailed per-attempt page. |
 | `sessions/active.json` | `SessionStore.start/close` | `{session_id}` pointer to the open session. |
 | `test_programs/*.json` | `test_programs.ensure_programs` `:109` | Copied from the bundled `04-ocv-current-fixed-cutoff.json`. |
@@ -235,6 +236,12 @@ sha256(serial, revision, recipe) (`_unit_key` `:346`). Each summary has:
 
 **For per-serial export, use the summary.** In `both_required` mode, calibration and test are
 separate attempts, and only the summary combines them into one verdict per charger.
+
+**Cost model.** The session JSON is written compact (no `indent`, C encoder) and holds only the small
+evidence (`results`, `events`, `stage_details`, preflight, baseline); `SessionStore` caches
+`summarize()`/`pending_unit()`/readiness per store `revision` (bumped by every change to the open
+session), `list_sessions()` re-parses a file only when its mtime/size changed, and the outbox caches
+parsed state per file signature (`Outbox.status_map()` is one scan for all History rows).
 
 ### 4.3 Trimmed example (an attempt as stored; heavy arrays elided)
 

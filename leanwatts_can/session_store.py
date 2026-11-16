@@ -9,6 +9,7 @@ import hmac
 import html
 import io
 import json
+import logging
 import math
 import os
 import secrets
@@ -18,7 +19,15 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from .version import VERSION
 
+LOGGER = logging.getLogger(__name__)
 
+# Raw acquisition lists live beside the session JSON, one file per attempt, so the checkpoint file stays small.
+EVIDENCE_SCHEMA = "leanwatts-evidence/1"
+EVIDENCE_FIELDS = ("samples", "can_trace", "trace_events")
+EVIDENCE_RECORDS = ("calibration", "test")
+SAFE_ID_CHARACTERS = frozenset("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_")
+LIST_CACHE_MAX_BYTES = 8 * 1024 * 1024
+LIST_CACHE_MAX_ENTRIES = 64
 LOCAL_ZONE = timezone(timedelta(hours=5, minutes=30), "IST")
 TEST_STAGE_ALIASES = {
     "open-circuit voltage": "Open-circuit voltage test", "open circuit voltage": "Open-circuit voltage test",
@@ -151,12 +160,16 @@ def now_text():
     return datetime.now(LOCAL_ZONE).isoformat(timespec="seconds")
 
 
-def atomic_json(path, value):
+def atomic_json(path, value, *, compact=False):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     with temporary.open("w", encoding="utf-8") as handle:
-        json.dump(value, handle, indent=2, ensure_ascii=False, allow_nan=False)
+        if compact:
+            # One-shot dumps uses the C encoder; json.dump(indent=...) is the slow pure-Python path.
+            handle.write(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")))
+        else:
+            json.dump(value, handle, indent=2, ensure_ascii=False, allow_nan=False)
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)
@@ -291,23 +304,130 @@ class SessionStore:
         self.pointer = self.folder / "active.json"
         self._lock = threading.RLock()
         self._active = None
+        # Bumped by every change to the open session; caches of derived results are valid for one revision.
+        self._rev = 0
+        self._summary_cache = None
+        self._pairing_cache = None
+        self._list_cache = {}
         if self.pointer.exists():
             pointer = json.loads(self.pointer.read_text(encoding="utf-8"))
             self._active = self._load(pointer["session_id"])
             if self._active.get("status") != "OPEN":
                 self._active = None
-            elif any(unit.get("outcome") == "RUNNING" for unit in self._active["units"]):
+            else:
+                recovered = any(unit.get("outcome") == "RUNNING" for unit in self._active["units"])
                 for unit in self._active["units"]:
                     if unit.get("outcome") == "RUNNING":
                         unit.update(outcome="INTERRUPTED", calibration_result="INCOMPLETE",
                             test_result="NOT RUN", finished_at=now_text(),
                             detail="Application closed before this attempt finished. No PASS was recorded.")
-                self._save()
+                # A session written before evidence sidecars existed is moved over once, here.
+                if recovered or any(self._has_inline_evidence(unit) for unit in self._active["units"]):
+                    self._save()
 
     def _path(self, session_id, suffix="json"):
         if not isinstance(session_id, str) or not session_id or any(c not in "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_" for c in session_id):
             raise ValueError("Invalid session identifier.")
         return self.folder / (session_id + "." + suffix)
+
+    @staticmethod
+    def _has_inline_evidence(unit):
+        return (isinstance(unit, dict) and unit.get("outcome") != "RUNNING"
+                and any(isinstance(unit.get(key), dict) and any(name in unit[key] for name in EVIDENCE_FIELDS)
+                        for key in EVIDENCE_RECORDS))
+
+    def _evidence_path(self, session_id, attempt_id):
+        if not isinstance(attempt_id, str) or not attempt_id or any(c not in SAFE_ID_CHARACTERS for c in attempt_id):
+            raise ValueError("Invalid attempt identifier.")
+        return self._path(session_id, "evidence") / (attempt_id + ".json")
+
+    def _externalize_unit(self, session_id, unit):
+        """Move one finished attempt's raw acquisition lists into its sidecar file.
+
+        Returns what was moved ({} when nothing moved). The sidecar is written and synced before the
+        lists leave the record; if that fails the data simply stays inline and is retried at the next save."""
+        if not self._has_inline_evidence(unit):
+            return {}
+        parts = {}
+        for key in EVIDENCE_RECORDS:
+            record = unit.get(key)
+            if isinstance(record, dict):
+                moved = {name: record[name] for name in EVIDENCE_FIELDS if name in record}
+                if moved:
+                    parts[key] = moved
+        try:
+            path = self._evidence_path(session_id, unit.get("attempt_id"))
+            payload = {"schema": EVIDENCE_SCHEMA, "session_id": session_id, "attempt_id": unit["attempt_id"]}
+            if isinstance(unit.get("evidence_sidecar"), dict) and path.is_file():
+                try:
+                    earlier = json.loads(path.read_text(encoding="utf-8"))
+                    for key in EVIDENCE_RECORDS:
+                        if isinstance(earlier.get(key), dict):
+                            payload[key] = dict(earlier[key])
+                except (OSError, ValueError):
+                    pass
+            for key, moved in parts.items():
+                payload.setdefault(key, {}).update(moved)
+            atomic_json(path, payload, compact=True)
+        except Exception:
+            LOGGER.warning("Evidence for attempt %s could not be written to its sidecar; it stays in the session file.",
+                           unit.get("attempt_id"), exc_info=True)
+            return {}
+        for key, moved in parts.items():
+            for name in moved:
+                del unit[key][name]
+        unit["evidence_sidecar"] = {"schema": EVIDENCE_SCHEMA, "file": path.name,
+            "counts": {key: {name: (len(value) if isinstance(value, list) else None) for name, value in moved.items()}
+                       for key, moved in payload.items() if key in EVIDENCE_RECORDS}}
+        return parts
+
+    def _externalize_all(self, data):
+        for unit in data["units"]:
+            self._externalize_unit(data["session_id"], unit)
+
+    def load_evidence(self, session_id, attempt_id):
+        """The raw lists of one attempt ({"calibration": {...}, "test": {...}}); ValueError when unavailable."""
+        try:
+            payload = json.loads(self._evidence_path(session_id, attempt_id).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"The evidence file for attempt {attempt_id} is missing or unreadable.") from exc
+        if (not isinstance(payload, dict) or payload.get("schema") != EVIDENCE_SCHEMA
+                or payload.get("attempt_id") != attempt_id):
+            raise ValueError(f"The evidence file for attempt {attempt_id} is not valid.")
+        return payload
+
+    def hydrate_session(self, data, *, strict=False):
+        """A deep copy of a session record with every attempt's raw lists put back inline.
+
+        Records written before sidecars existed are already complete and come back unchanged. With
+        strict=True a missing or damaged sidecar raises ValueError; otherwise the marker is kept."""
+        data = copy.deepcopy(data)
+        for unit in data.get("units", []):
+            if not isinstance(unit, dict) or not isinstance(unit.get("evidence_sidecar"), dict):
+                continue
+            try:
+                payload = self.load_evidence(data["session_id"], unit.get("attempt_id"))
+            except ValueError:
+                if strict:
+                    raise
+                LOGGER.warning("Evidence for attempt %s is unavailable.", unit.get("attempt_id"))
+                continue
+            for key in EVIDENCE_RECORDS:
+                if isinstance(payload.get(key), dict):
+                    if not isinstance(unit.get(key), dict):
+                        unit[key] = {}
+                    unit[key].update(payload[key])
+            del unit["evidence_sidecar"]
+        return data
+
+    def export_record(self, session_id, destination):
+        """Write the complete audit record (raw acquisitions included) to destination."""
+        source = self._path(session_id)
+        data = json.loads(source.read_text(encoding="utf-8"))
+        if not any(isinstance(unit, dict) and unit.get("evidence_sidecar") for unit in data.get("units", [])):
+            Path(destination).write_bytes(source.read_bytes())
+            return
+        atomic_json(destination, self.hydrate_session(data, strict=True))
 
     def _load(self, session_id):
         data = json.loads(self._path(session_id).read_text(encoding="utf-8"))
@@ -323,6 +443,63 @@ class SessionStore:
     def active(self):
         with self._lock:
             return copy.deepcopy(self._active)
+
+    @property
+    def revision(self):
+        """Changes whenever the open session changes; equal values mean equal derived results."""
+        return self._rev
+
+    def is_open(self):
+        """Cheap 'is a session open?' for polling; unlike active() it copies nothing and never waits for the lock."""
+        return self._active is not None
+
+    def read(self, function):
+        """Run function(session) on the live session under the store lock. The function must not keep or mutate it."""
+        with self._lock:
+            return function(self._active)
+
+    def _touch(self):
+        with self._lock:
+            self._rev += 1
+            self._summary_cache = None
+            self._pairing_cache = None
+
+    def _summaries(self):
+        """Plain summaries of the open session plus a group index; recomputed only after a change. Read-only."""
+        with self._lock:
+            data = self._active
+            if data is None:
+                return [], {}
+            key = (self._rev, id(data), len(data["units"]))
+            cache = self._summary_cache
+            if cache is None or cache[0] != key:
+                summaries = self.summarize(data)
+                cache = self._summary_cache = (key, summaries, {item["group_id"]: item for item in summaries})
+            return cache[1], cache[2]
+
+    def paired_stage_details(self, attempt_id):
+        """(calibration_result, stage_details) of the charger group holding attempt_id, or None.
+
+        Same evidence summary the production screen used to rebuild for the whole session on every
+        tick; here only that one group is summarized, and once per session revision."""
+        with self._lock:
+            data = self._active
+            if data is None:
+                return None
+            key = (self._rev, id(data), len(data["units"]), attempt_id)
+            if self._pairing_cache is not None and self._pairing_cache[0] == key:
+                return copy.deepcopy(self._pairing_cache[1])
+            summaries, _ = self._summaries()
+            group = next((item for item in summaries if attempt_id in item.get("attempt_ids", [])), None)
+            value = None
+            if group is not None:
+                wanted = set(group["attempt_ids"])
+                part = {"session_mode": data.get("session_mode", "independent"),
+                        "units": [unit for unit in data["units"] if unit.get("attempt_id") in wanted]}
+                current = self.summarize(part, evidence=True)[0]
+                value = (current.get("calibration_result"), current.get("stage_details", []))
+            self._pairing_cache = (key, value)
+            return copy.deepcopy(value)
 
     def start(self, operator, mode="independent"):
         with self._lock:
@@ -349,8 +526,11 @@ class SessionStore:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @classmethod
-    def summarize(cls, data, *, evidence=False):
-        """Combine attempts for the same serial and frozen recipe; retain every audit attempt."""
+    def summarize(cls, data, *, evidence=False, copy_evidence=True):
+        """Combine attempts for the same serial and frozen recipe; retain every audit attempt.
+
+        copy_evidence=False lets a read-only caller share the attempts' evidence instead of copying it."""
+        duplicate = copy.deepcopy if copy_evidence else (lambda value: value)
         groups = {}
         for attempt in data.get("units", []):
             key = cls._unit_key(attempt.get("serial", ""), attempt.get("recipe", {}),
@@ -423,16 +603,16 @@ class SessionStore:
                 if cal:
                     for field in ("calibration", "preflight_result", "baseline_result", "starting_point", "persistence_verified"):
                         if field in cal:
-                            summary[field] = copy.deepcopy(cal[field])
+                            summary[field] = duplicate(cal[field])
                 if test:
-                    summary["test"] = copy.deepcopy(test.get("test"))
+                    summary["test"] = duplicate(test.get("test"))
                 summary["stage_details"] = []
                 if cal:
-                    summary["stage_details"].extend(copy.deepcopy(item) for item in cal.get("stage_details", [])
+                    summary["stage_details"].extend(duplicate(item) for item in cal.get("stage_details", [])
                         if not is_test_stage(item.get("name", "")))
                 if test:
                     actual_names = {item.get("name") for item in (test.get("test") or {}).get("results", [])}
-                    summary["stage_details"].extend(copy.deepcopy(item) for item in test.get("stage_details", [])
+                    summary["stage_details"].extend(duplicate(item) for item in test.get("stage_details", [])
                         if is_test_stage(item.get("name", "")) or item.get("name") in actual_names)
             summaries.append(summary)
         return summaries
@@ -441,8 +621,8 @@ class SessionStore:
         with self._lock:
             if not self._active or self._active.get("session_mode") != "both_required":
                 return None
-            return next((item for item in self.summarize(self._active)
-                         if item["completion_state"] != "COMPLETE"), None)
+            item = next((item for item in self._summaries()[0] if item["completion_state"] != "COMPLETE"), None)
+            return copy.deepcopy(item)
 
     def readiness(self, serial, recipe, revision, *, run_calibration, run_tests):
         """The store enforces the same pairing guard as the UI, including after restart."""
@@ -456,10 +636,11 @@ class SessionStore:
                 return "Choose Parameters + Calibration or Test separately."
             recipe_data = recipe.to_dict() if hasattr(recipe, "to_dict") else recipe
             key = self._unit_key(serial, recipe_data, revision)
-            pending = self.pending_unit()
+            summaries, index = self._summaries()
+            pending = next((item for item in summaries if item["completion_state"] != "COMPLETE"), None)
             if pending and key != pending["group_id"]:
                 return f"Finish {pending['next_step']} for {pending['serial']} with its frozen variant, or close this session as incomplete."
-            existing = next((item for item in self.summarize(self._active) if item["group_id"] == key), None)
+            existing = index.get(key)
             if run_tests and (not existing or existing["calibration_result"] != "PASS"
                               or existing.get("next_step") == "Parameters + Calibration"
                               or existing.get("simulation")):
@@ -478,7 +659,8 @@ class SessionStore:
                 return "This session is Test only. Start a new session to run calibration."
             return ""
 
-    def begin_unit(self, serial, recipe, revision, *, run_tests=True, run_calibration=True, serial_override=False):
+    def begin_unit(self, serial, recipe, revision, *, run_tests=True, run_calibration=True, serial_override=False,
+                   station=None):
         from .serial_numbers import validate_serial
         error = validate_serial(str(serial), allow_custom=serial_override)
         if error:
@@ -499,7 +681,12 @@ class SessionStore:
             if reason:
                 raise ValueError(reason)
             attempt_id = uuid.uuid4().hex
-            self._active["units"].append(dict(attempt_id=attempt_id,
+            # Who ran this attempt and where, recorded at the start so an interrupted attempt still carries it.
+            session_operator = self._active.get("operator")
+            operator = ({key: (str(session_operator[key]) if session_operator.get(key) is not None else None)
+                         for key in ("id", "name", "role")} if isinstance(session_operator, dict) else None)
+            station = str(station).strip()[:120] if isinstance(station, str) and station.strip() else None
+            self._active["units"].append(dict(attempt_id=attempt_id, operator=operator, station=station,
                 sequence=len(self._active["units"]) + 1, serial=serial, serial_override=serial_override,
                 started_at=now_text(), finished_at=None, recipe_name=recipe_data.get("name", ""),
                 recipe_revision=revision, recipe=recipe_data, calibration_result="RUNNING" if run_calibration else "NOT RUN",
@@ -534,12 +721,25 @@ class SessionStore:
                 if key in incoming and key in unit and incoming[key] != unit[key]:
                     raise ValueError("The recorded workflow cannot change after starting a charger.")
             protected = {key: unit[key] for key in ("attempt_id", "sequence", "serial", "started_at", "recipe", "recipe_name", "recipe_revision")}
+            begun_operator, begun_station = unit.get("operator"), unit.get("station")
             unit.update(incoming)
             unit.update(protected)
+            # Keep what was recorded at the start unless the finish carries something better.
+            if isinstance(begun_operator, dict) and begun_operator.get("id"):
+                unit["operator"] = begun_operator
+            if begun_station and str(unit.get("station") or "").strip() in ("", "UNKNOWN STATION"):
+                unit["station"] = begun_station
             unit["finished_at"] = incoming.get("finished_at") or now_text()
             unit["failure_reason"] = failure_reason(unit)
-            self._save()
-            return copy.deepcopy(unit)
+            moved = self._externalize_unit(self._active["session_id"], unit)
+            self._save(externalize=False)
+            result_unit = copy.deepcopy(unit)
+            if moved:
+                # The caller still receives the complete attempt; the lists it gets are no longer held by the store.
+                for key, parts in moved.items():
+                    result_unit.setdefault(key, {}).update(parts)
+                result_unit.pop("evidence_sidecar", None)
+            return result_unit
 
     def close(self):
         with self._lock:
@@ -551,20 +751,35 @@ class SessionStore:
             self._save()
             result = self.active()
             self._active = None
+            self._touch()
             self.pointer.unlink(missing_ok=True)
             return result
 
     def list_sessions(self):
+        """Every stored session, newest first. Unchanged files are served from memory: treat the records as read-only."""
         with self._lock:
-            result = []
+            result, seen = [], set()
             for path in sorted(self.folder.glob("*.json"), reverse=True):
                 if path.name == "active.json":
                     continue
                 try:
-                    data = self._load(path.stem)
+                    stat = path.stat()
+                    signature = (stat.st_mtime_ns, stat.st_size)
+                    cached = self._list_cache.get(path.name)
+                    if cached is not None and cached[0] == signature:
+                        data = cached[1]
+                    else:
+                        data = self._load(path.stem)
+                        if stat.st_size <= LIST_CACHE_MAX_BYTES and len(self._list_cache) < LIST_CACHE_MAX_ENTRIES:
+                            self._list_cache[path.name] = (signature, data)
+                        else:
+                            self._list_cache.pop(path.name, None)
+                    seen.add(path.name)
                     result.append(data)
                 except (ValueError, KeyError, OSError):
                     continue
+            for name in set(self._list_cache) - seen:
+                del self._list_cache[name]
             return result
 
     def report_paths(self, session_id):
@@ -572,12 +787,15 @@ class SessionStore:
         paths["detail_html"] = str(self._path(session_id, "detail.html").resolve())
         return paths
 
-    def _save(self):
+    def _save(self, externalize=True):
         data = self._active
-        data["unit_summaries"] = self.summarize(data)
+        self._touch()
+        if externalize:
+            self._externalize_all(data)
+        data["unit_summaries"] = self._summaries()[0]
         data["completion_state"] = ("INCOMPLETE" if data.get("session_mode") == "both_required"
             and any(unit["completion_state"] != "COMPLETE" for unit in data["unit_summaries"]) else "COMPLETE")
-        atomic_json(self._path(data["session_id"]), data)
+        atomic_json(self._path(data["session_id"]), data, compact=True)
         # JSON is the durable source of truth. Derived readable reports are
         # refreshed after each charger and again when the session closes.
         self._write_reports(data)
@@ -585,7 +803,7 @@ class SessionStore:
     def _write_reports(self, data):
         """One charger per row; full acquisition evidence remains in the JSON."""
         from .session_seed import starting_point_text
-        summary_units = self.summarize(data, evidence=True)
+        summary_units = self.summarize(data, evidence=True, copy_evidence=False)
 
         def mapping(value):
             return value if isinstance(value, dict) else {}

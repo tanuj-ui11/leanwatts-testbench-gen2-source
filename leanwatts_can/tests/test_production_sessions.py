@@ -64,6 +64,41 @@ class SessionRecordsTests(unittest.TestCase):
                 self.assertTrue(Path(path).is_file())
             self.assertIn("INTERRUPTED", Path(closed["report_paths"]["html"]).read_text())
 
+    def test_operator_and_station_are_recorded_when_the_attempt_begins(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = SessionStore(folder)
+            store.start(dict(id="OP07", name="R. Kumar", role="operator", enabled=True))
+            attempt = store.begin_unit("SERIAL", production_recipe(), 1, serial_override=True, station="  LW-EOL-01 ")
+            unit = store.active()["units"][0]
+            self.assertEqual(unit["operator"], {"id": "OP07", "name": "R. Kumar", "role": "operator"})
+            self.assertEqual(unit["station"], "LW-EOL-01")
+            # An application restart marks the attempt INTERRUPTED and it still carries who and where.
+            recovered = SessionStore(folder).active()["units"][0]
+            self.assertEqual(recovered["outcome"], "INTERRUPTED")
+            self.assertEqual(recovered["operator"], unit["operator"])
+            self.assertEqual(recovered["station"], "LW-EOL-01")
+            # The finish keeps them even when the run result carries the placeholder station.
+            store.finish_unit(attempt, dict(outcome="FAIL", calibration_result="FAIL", test_result="NOT RUN",
+                                            stage_details=[], station="UNKNOWN STATION",
+                                            operator={"id": None, "name": None, "role": None}))
+            done = store.active()["units"][0]
+            self.assertEqual(done["station"], "LW-EOL-01")
+            self.assertEqual(done["operator"]["id"], "OP07")
+
+    def test_station_is_optional_and_older_attempts_read_as_none(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = SessionStore(folder)
+            store.start(dict(id="OP07", name="R. Kumar", role="operator", enabled=True))
+            store.begin_unit("SERIAL", production_recipe(), 1, serial_override=True)
+            self.assertIsNone(store.active()["units"][0]["station"])
+            record = json.loads(Path(folder, "sessions", store.active()["session_id"] + ".json").read_text())
+            for key in ("operator", "station"):
+                record["units"][0].pop(key)
+            Path(folder, "sessions", record["session_id"] + ".json").write_text(json.dumps(record))
+            old = SessionStore(folder).active()["units"][0]
+            self.assertIsNone(old.get("operator"))
+            self.assertIsNone(old.get("station"))
+
     def test_incomplete_result_cannot_be_promoted_to_pass(self):
         with tempfile.TemporaryDirectory() as folder:
             store = SessionStore(folder)

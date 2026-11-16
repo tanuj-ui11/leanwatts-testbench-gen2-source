@@ -1801,7 +1801,8 @@ class AutomationEngine:
         if not follows:
             self.detail = f"Waiting for actual current to follow {self._termination_setpoint:g} A; measured {reading.current:.3f} A / {reading.voltage:.2f} V."
             if self._now >= self._termination_follow_deadline:
-                self._termination_result("FAIL", "CC demand was not followed within 10 seconds; no confirmed dual voltage/current cutoff was observed.")
+                self._termination_result("FAIL", "CC demand was not followed within 10 seconds; no confirmed dual voltage/current cutoff was observed. "
+                    f"Last demand {self._termination_setpoint:g} A, measured {reading.current:.3f} A / {reading.voltage:.2f} V.")
             return
         self._termination_last_on = dict(measured_current_a=reading.current, voltage=reading.voltage,
             commanded_current_a=self._termination_setpoint, timestamp=reading.timestamp, sequence=reading.sequence)

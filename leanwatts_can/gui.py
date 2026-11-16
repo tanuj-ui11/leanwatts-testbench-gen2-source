@@ -26,6 +26,11 @@ from .production_flow import validate_test_recipe
 from .session_history import SessionHistoryPage
 from .account_settings import AccountSettings, LoginDialog
 from .update_settings import UpdateSettingsPage
+from .dashboard_client import DashboardError
+from .dashboard_settings import DashboardSettings
+from .dashboard_settings_page import DashboardSettingsPage
+from .outbox import Outbox
+from .outbox_service import OutboxService
 from .appearance_settings import AppearanceSettings
 from .about_page import AboutPage
 from .branding import app_icon, logo_label, footer_widget
@@ -44,7 +49,12 @@ class CalibrationWindow(QMainWindow):
         self.setMinimumSize(1040, 680)
         self.resize(1400, 900)
         self.session_store = SessionStore(self.data_dir)
+        self.dashboard_settings = DashboardSettings(self.data_dir)
+        self.outbox = Outbox(self.data_dir / "outbox")
+        self.outbox_service = OutboxService(self.outbox, self.dashboard_settings.client,
+                                            busy_check=self._update_busy)
         self._build()
+        self.outbox_service.start()
         self.recipes.load()
         self.history_page.refresh()
         QShortcut(QKeySequence("F5"), self, activated=self._start_shortcut)
@@ -82,13 +92,18 @@ class CalibrationWindow(QMainWindow):
         self.operator_page = SessionPage(self.data_dir, self.legacy_page, self.session_store)
         self.test_page = TestProgramPage(self.data_dir / "test_programs")
         self.firmware_page = FirmwareProgrammingPage()
-        self.history_page = SessionHistoryPage(self.data_dir, self.session_store)
+        self.history_page = SessionHistoryPage(self.data_dir, self.session_store, outbox=self.outbox,
+            station_name=lambda: self.dashboard_settings.settings()["station_name"])
         self.accounts_page = AccountSettings(self.data_dir)
         self.update_page = UpdateSettingsPage(self.data_dir, busy_check=self._update_busy,
             current_version=VERSION, can_configure=self._authorize_update_config)
+        self.dashboard_page = DashboardSettingsPage(self.dashboard_settings,
+            can_configure=self._authorize_update_config, on_saved=self.outbox_service.resume)
+        self.outbox_service.changed.connect(self.history_page.refresh_status)
         self.settings_page = QTabWidget()
         self.settings_page.addTab(self.accounts_page, "Operator accounts")
         self.settings_page.addTab(self.update_page, "Software updates")
+        self.settings_page.addTab(self.dashboard_page, "Dashboard")
         self.appearance_page = AppearanceSettings(self.data_dir)
         self.about_page = AboutPage(self.data_dir, version=VERSION)
         self.settings_page.addTab(self.appearance_page, "Appearance")
@@ -104,6 +119,7 @@ class CalibrationWindow(QMainWindow):
         self.recipes.profiles_changed.connect(self.operator_page.set_profiles)
         self.recipes.profiles_changed.connect(self.test_page.set_profiles)
         self.recipes.profiles_changed.connect(self.firmware_page.set_profiles)
+        self.operator_page.station_name = lambda: self.dashboard_settings.settings()["station_name"]
         self.operator_page.live_readiness = self._operator_live_reason
         self.operator_page.live_run_factory = self._operator_live_factory
         self.test_controller = TestProgramController(self, self.test_page)
@@ -127,8 +143,16 @@ class CalibrationWindow(QMainWindow):
         if self.tabs.widget(index) is self.history_page:
             self.history_page.refresh()
 
+    def fetch_worklist(self, wo_ref):
+        """Download one work order's serial list. Called only on an explicit operator request, never on the instrument thread.
+        Raises ValueError with an operator-facing message."""
+        try:
+            return self.dashboard_settings.client().work_order_serials(wo_ref)
+        except DashboardError as exc:
+            raise ValueError(exc.message) from None
+
     def _update_busy(self):
-        return bool(self.operator_page.busy or (getattr(self, "test_controller", None) and self.test_controller.busy) or self.session_store.active() or self.load_setup.busy
+        return bool(self.operator_page.busy or (getattr(self, "test_controller", None) and self.test_controller.busy) or self.session_store.is_open() or self.load_setup.busy
                     or (getattr(self, "firmware_controller", None) and self.firmware_controller.busy)
                     or self.legacy_page.device_open or self.legacy_page._live_future is not None)
 
@@ -289,6 +313,8 @@ class CalibrationWindow(QMainWindow):
             event.ignore()
             return
         self._closing = True
+        self.outbox_service.stop()
+        self.dashboard_page.dispose()
         self.operator_page.dispose()
         self.test_controller.dispose()
         self.firmware_controller.dispose()

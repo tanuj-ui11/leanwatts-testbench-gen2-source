@@ -426,7 +426,15 @@ class MaynuoLoad:
             return True
 
     def set_load_current(self, current: float) -> bool:
-        """Change IFIX in continuous CC operation; never toggle input or mode."""
+        """Change the CC current of a running load; never toggle input.
+
+        Bench evidence: with the input ON, writing IFIX alone is read back correctly
+        but the running regulator keeps drawing the old current (the end-current
+        sweep stayed at 5 A and failed at the 4.8 A step). The new IFIX is therefore
+        applied the way the CV -> CC transition applies it: prepare and read back
+        IFIX, then issue the documented CC mode command once, with the input state
+        verified before and after. No input ON/OFF command is ever sent.
+        """
         with self._lock:
             self._require_commission()
             value = self._setpoint("CC", current)
@@ -435,9 +443,15 @@ class MaynuoLoad:
             if before.mode != "CC" or not before.input_on or not before.remote or before.faults or before.unregulated:
                 raise MaynuoError("Continuous-current adjustment requires healthy CC input ON.")
             self._write(0x0A01, struct.pack(">f", value))
+            prepared = struct.unpack(">f", self._registers(0x0A01, 2))[0]
+            if not self._matches(prepared, value):
+                raise MaynuoError("Continuous-current adjustment was not confirmed.")
+            if not self._coils(0x0510, 1) & 1:
+                raise MaynuoError("Load input turned OFF while preparing the continuous-current adjustment.")
+            self._command(1)
             after = self.read()
             if after.mode != "CC" or not after.input_on or not after.remote or not self._matches(after.setpoint, value):
-                raise MaynuoError("Continuous-current adjustment was not confirmed.")
+                raise MaynuoError("Continuous-current adjustment was not confirmed after applying the CC command.")
             return True
 
     def transition_to_cc(self, current: float) -> bool:

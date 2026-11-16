@@ -33,9 +33,17 @@ class ProductionFlow:
     """Run start/tick/stop on one worker. Construction never opens instruments."""
     def __init__(self, recipe, serial, operator, revision, calibration_factory,
                  test_factory, cancellation_event=None, *, run_tests=True, starting_point=None,
-                 run_calibration=True, serial_override=False, test_program=None):
+                 run_calibration=True, serial_override=False, test_program=None,
+                 station="UNKNOWN STATION", production_ready=None):
         if type(run_tests) is not bool or type(run_calibration) is not bool or not (run_tests or run_calibration):
             raise ValueError("Choose calibration, tests, or both.")
+        if not isinstance(station, str):
+            raise ValueError("The station name must be text.")
+        if production_ready is not None and type(production_ready) is not bool:
+            raise ValueError("The variant production-ready flag must be true, false, or unknown.")
+        # Capture-only fields for the EoL report; they never change instrument behaviour.
+        self.station = station.strip()[:120] or "UNKNOWN STATION"
+        self.production_ready = production_ready
         self.recipe = recipe.copy()
         self._serial_input = str(serial)
         self.serial = str(serial).strip()
@@ -68,6 +76,20 @@ class ProductionFlow:
     def _operator_label(self):
         return (f"{self.operator.get('name', '')} ({self.operator.get('id', '')})"
                 if isinstance(self.operator, dict) else str(self.operator))
+
+    def _operator_identity(self):
+        """Per-attempt operator for the EoL report; absent values stay None."""
+        if isinstance(self.operator, dict):
+            return {key: (str(self.operator[key]) if self.operator.get(key) is not None else None)
+                    for key in ("id", "name", "role")}
+        return {"id": None, "name": str(self.operator) if self.operator else None, "role": None}
+
+    def _load_identity(self):
+        """Read-only probe identity recorded by the bench; None when no probe was stored."""
+        probe = (self.calibration or {}).get("load_probe") or (self.test or {}).get("load_probe")
+        if not isinstance(probe, dict):
+            return None
+        return {key: probe.get(key) for key in ("model_code", "firmware_code", "port")}
 
     def start(self):
         if self.is_running or self.started_at:
@@ -126,6 +148,11 @@ class ProductionFlow:
         record["trace_events"] = copy.deepcopy(getattr(engine.bench, "trace_events", []))
         record["trace_capture_complete"] = getattr(engine.bench, "trace_capture_complete", True)
         record["trace_capture_error"] = getattr(engine.bench, "trace_capture_error", "")
+        probe = getattr(engine.bench, "probe_result", None)
+        record["load_probe"] = copy.deepcopy(probe) if isinstance(probe, dict) else None
+        index, bitrate = getattr(engine.bench, "can_index", None), getattr(engine.bench, "bitrate", None)
+        record["can_adapter"] = ({"index": index, "bitrate": bitrate}
+                                 if type(index) is int and type(bitrate) is int else None)
         return record
 
     def _calibration_pass(self):
@@ -327,7 +354,10 @@ class ProductionFlow:
             test_program=copy.deepcopy(self.test_program), test_start_method=self.test_start_method,
             diagnostic_only=diagnostic, normal_operation_verified=bool(test_pass and not self._simulation),
             startup_voltage_result=copy.deepcopy((self.test or {}).get("startup_voltage_result")),
-            persistence_verified=False)
+            persistence_verified=False,
+            operator=self._operator_identity(), station=self.station,
+            production_ready=self.production_ready, load_identity=self._load_identity(),
+            can_adapter=copy.deepcopy((self.calibration or self.test or {}).get("can_adapter")))
 
     def snapshot(self):
         active = self.engine.snapshot() if self.engine is not None else {}

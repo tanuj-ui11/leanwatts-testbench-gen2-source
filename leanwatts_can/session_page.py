@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QUrl, Signal
+from PySide6.QtCore import QRunnable, QThreadPool, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel,
@@ -25,6 +25,24 @@ from .production_flow import ProductionFlow, validate_test_recipe
 from .session_seed import select_session_seed, starting_point_text
 from .session_store import OperatorStore, SessionStore, is_test_stage, test_stage_name
 from .serial_numbers import validate_serial
+from .worklist import OK as WORKLIST_OK, Worklist, classify, normalise_scan
+
+
+class _FetchJob(QRunnable):
+    """Runs one injected fetch off the GUI thread; the outcome comes back through a signal."""
+    def __init__(self, work, deliver):
+        super().__init__()
+        self._work, self._deliver = work, deliver
+
+    def run(self):
+        try:
+            result, error = self._work(), ""
+        except Exception as exc:
+            result, error = None, str(exc) or exc.__class__.__name__
+        try:
+            self._deliver(result, error)
+        except RuntimeError:
+            pass  # the window was destroyed while the download ran
 
 
 def caption(value="", *, large=False):
@@ -87,6 +105,7 @@ class SessionPage(QWidget):
     recipes_requested = Signal()
     settings_requested = Signal()
     manual_requested = Signal()
+    _download_finished = Signal(int, str, object, str)  # generation, reference, worklist, error
 
     STAGES = ("Baseline open voltage", "Baseline current", "Charger parameters", "Current calibration", "Voltage calibration",
               "Open-circuit voltage test", "Full-current test", "End-current cutoff test")
@@ -114,12 +133,26 @@ class SessionPage(QWidget):
         self.flow = self.engine = None
         self.snapshot = None
         self._attempt_id = None
+        self._attempt_serial = None  # serial of the last run that used Other number
         self._attempt_recorded = False
         self._session = None
         self._authenticated_operator = None
         self._last_report = None
         self._activity_dialog = None
         self._last_readiness = None
+        self._readiness_cache = {}
+        # Injected by the app: fetch_worklist(wo_ref) -> bench API payload. None means no dashboard is configured.
+        self.fetch_worklist = None
+        # Injected by the app: the configured station name, stamped on each attempt when it begins.
+        self.station_name = lambda: ""
+        self._worklist = None
+        self._downloading = False
+        self._download_generation = 0
+        self._download_pool = QThreadPool(self)
+        self._download_pool.setMaxThreadCount(1)
+        self._download_finished.connect(self._download_done)
+        self._pending_warning_serial = None
+        self._carried_override_serial = None  # serial the kept Other-number choice belongs to
         self._build()
         try:
             self._session = self.store.active()
@@ -182,7 +215,7 @@ class SessionPage(QWidget):
         self.serial.setToolTip("Standard examples: WO-S00430-1-001 or WO-S00261-BS1-019. Select Other number for a different format.")
         self.serial.setMinimumHeight(38)
         self.serial.textChanged.connect(self._identity_changed)
-        self.serial.returnPressed.connect(lambda: self.start(self._default_process()))
+        self.serial.returnPressed.connect(self._scan_entered)
         select.addWidget(self.serial, 2)
         self.other_number = QPushButton("Other number")
         self.other_number.setCheckable(True)
@@ -191,6 +224,20 @@ class SessionPage(QWidget):
         self.other_number.toggled.connect(self._serial_mode_changed)
         select.addWidget(self.other_number)
         unit.body.addLayout(select)
+        worklist_row = QHBoxLayout()
+        worklist_row.setSpacing(8)
+        worklist_row.addWidget(caption("Work order"))
+        self.work_order = QLineEdit()
+        self.work_order.setPlaceholderText("WO-S00429")
+        self.work_order.setMinimumHeight(34)
+        worklist_row.addWidget(self.work_order, 1)
+        self.download_serials = QPushButton("Download serials")
+        self.download_serials.setMinimumHeight(34)
+        self.download_serials.clicked.connect(self._download_worklist)
+        worklist_row.addWidget(self.download_serials)
+        unit.body.addLayout(worklist_row)
+        self.worklist_status = caption("No work-order serials downloaded. Scans are not checked against a list.")
+        unit.body.addWidget(self.worklist_status)
         actions = QHBoxLayout()
         self.calibrate = QPushButton("Parameters +\nCalibration")
         self.calibrate.setObjectName("Primary")
@@ -327,8 +374,19 @@ class SessionPage(QWidget):
         self._identity_changed()
 
     def _identity_changed(self, *args):
+        # Any change to the serial field withdraws a pending warning confirmation.
+        self._pending_warning_serial = None
         if self.busy:
             return
+        carried = self._carried_override_serial
+        if carried is not None and self.serial.text().strip() != carried:
+            # The kept choice belonged to the previous charger; the next one needs a fresh choice.
+            self._carried_override_serial = None
+            self.other_number.blockSignals(True)
+            self.other_number.setChecked(False)
+            self.other_number.blockSignals(False)
+            self.other_number.setText("Other number")
+            self.serial.setPlaceholderText("WO-S00430-1-001")
         if self.snapshot:
             self.snapshot = None
             self.flow = self.engine = None
@@ -342,13 +400,21 @@ class SessionPage(QWidget):
         self._lock_controls()
 
     def _serial_mode_changed(self, checked):
+        self._carried_override_serial = None
         self.serial.setPlaceholderText("Enter other charger number" if checked else "WO-S00430-1-001")
         self.other_number.setText("Other number ✓" if checked else "Other number")
         self._identity_changed()
 
-    def _reset_serial_mode(self):
+    def _reset_serial_mode(self, *, keep_for_serial=None):
         if self._sync_pending_unit():
             return
+        if keep_for_serial is not None and self.other_number.isChecked() \
+                and self.serial.text().strip() == keep_for_serial:
+            # Same charger, next process (e.g. Test after Parameters + Calibration): keep its
+            # Other number choice until the serial changes or the operator toggles it.
+            self._carried_override_serial = keep_for_serial
+            return
+        self._carried_override_serial = None
         # Keep the completed result visible while requiring a fresh choice for
         # the next unit; toggled handlers normally clear the previous result.
         self.other_number.blockSignals(True)
@@ -356,6 +422,76 @@ class SessionPage(QWidget):
         self.other_number.blockSignals(False)
         self.other_number.setText("Other number")
         self.serial.setPlaceholderText("WO-S00430-1-001")
+
+    def _download_worklist(self):
+        if self.busy or self._downloading:
+            return
+        if self.fetch_worklist is None:
+            self.detail.setText("Dashboard not configured")
+            return
+        reference = self.work_order.text().strip()
+        if not reference:
+            self.detail.setText("Enter the work-order number, for example WO-S00429.")
+            return
+        # The fetch can wait up to the client timeout, so it runs on a worker; the result returns by signal.
+        self._downloading = True
+        self._download_generation += 1
+        generation, fetch = self._download_generation, self.fetch_worklist
+        self.detail.setText(f"Downloading serials for {reference}…")
+        self._lock_controls()
+
+        def work():
+            return Worklist.from_contract(fetch(reference))
+
+        self._download_pool.start(_FetchJob(
+            work, lambda result, error: self._download_finished.emit(generation, reference, result, error)))
+
+    def _download_done(self, generation, reference, worklist, error):
+        if generation != self._download_generation:
+            return
+        self._downloading = False
+        if self._closing or self.work_order.text().strip() != reference:
+            self._lock_controls()
+            return  # the work-order field changed while downloading; the result no longer applies
+        self._lock_controls()
+        if error or worklist is None:
+            self.detail.setText(f"Serials could not be downloaded: {error or 'no list returned'}")
+            return
+        # Kept in memory only; never written into session files.
+        self._worklist = worklist
+        self._pending_warning_serial = None
+        self.worklist_status.setText(f"{worklist.wo_number} · {len(worklist.serials)} serials · as of {local_time(worklist.as_of)}")
+        self.detail.setText(f"Downloaded {len(worklist.serials)} serials for {worklist.wo_number}. Scans are checked against this list.")
+
+    def _worklist_check(self, serial):
+        """Warn-only check against the downloaded list. None when no check applies."""
+        if self._worklist is None or self.other_number.isChecked() or self.store.pending_unit():
+            return None
+        session_units = self.store.summarize(self._session) if self._session else []
+        done = {item.get("serial") for item in session_units if item.get("completion_state") == "COMPLETE"}
+        return classify(serial, self._worklist, already_passed_remote=self._worklist.passed_remote(),
+                        already_done_local=done)
+
+    def _worklist_gate(self, serial):
+        """True when the unit may start. A warning needs a second Start press for the same serial."""
+        check = self._worklist_check(serial)
+        if check is None or check.code == WORKLIST_OK or self._pending_warning_serial == serial:
+            self._pending_warning_serial = None
+            return True
+        self._pending_warning_serial = serial
+        self.detail.setText(f"{check.message} Press Start again to continue with this serial.")
+        return False
+
+    def _scan_entered(self):
+        if self._worklist is not None and not self.busy:
+            text = self.serial.text()
+            scanned = normalise_scan(text)
+            if scanned != text:
+                self.serial.setText(scanned)
+            check = self._worklist_check(scanned)
+            if check is not None:
+                self.detail.setText(check.message)
+        self.start(self._default_process())
 
     def set_mode(self, mode):
         if mode == self._mode:
@@ -430,6 +566,43 @@ class SessionPage(QWidget):
     def _readiness(self, process="calibration"):
         if process not in ("calibration", "test_only"):
             return "Choose Parameters + Calibration or Test."
+        reason = self._stored_readiness(process)
+        if reason:
+            return reason
+        if self._mode != "simulation":
+            index = self.variant.currentIndex()
+            if self.records[index].get("simulation_only"):
+                return "Save the actual production variant in Variant recipes."
+            if self.live_run_factory is None:
+                return "The load and CAN connection are not configured."
+            checks = ("test_only",) if process == "test_only" else ("calibration",)
+            for check in checks:
+                reason = self.live_readiness(check)
+                if reason:
+                    return reason
+        return self.start_guard()
+
+    def _stored_readiness(self, process):
+        """Everything in the readiness decision that depends only on the session, the variant and the serial.
+
+        Recomputed only when one of those inputs (or the store revision) changes; the live-bench and
+        start-guard checks that follow are cheap and always evaluated fresh."""
+        index = self.variant.currentIndex()
+        record = self.records[index] if 0 <= index < len(self.records) else None
+        operator = self._session.get("operator", {}) if self._session else None
+        key = (id(self.store), self.store.revision, self.store.is_open(), index, repr(record),
+               self.serial.text(), self.other_number.isChecked(),
+               operator.get("id") if isinstance(operator, dict) else None, bool(self._session),
+               self._authenticated_operator.get("id") if self._authenticated_operator else None,
+               bool(self._authenticated_operator))
+        cached = self._readiness_cache.get(process)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        reason = self._compute_stored_readiness(process)
+        self._readiness_cache[process] = (key, reason)
+        return reason
+
+    def _compute_stored_readiness(self, process):
         if not self._session or not self._authenticated_operator:
             return "Start or resume an operator session."
         if self._authenticated_operator.get("id") != self._session.get("operator", {}).get("id"):
@@ -457,17 +630,7 @@ class SessionPage(QWidget):
                                       run_calibration=process == "calibration", run_tests=process == "test_only")
         if reason:
             return reason
-        if self._mode != "simulation":
-            if self.records[index].get("simulation_only"):
-                return "Save the actual production variant in Variant recipes."
-            if self.live_run_factory is None:
-                return "The load and CAN connection are not configured."
-            checks = ("test_only",) if process == "test_only" else ("calibration",)
-            for check in checks:
-                reason = self.live_readiness(check)
-                if reason:
-                    return reason
-        return self.start_guard()
+        return ""
 
     def _default_process(self):
         return "test_only" if (self._session or {}).get("session_mode") == "test_only" else "calibration"
@@ -495,6 +658,10 @@ class SessionPage(QWidget):
             if error:
                 raise ValueError(error)
             serial = self.serial.text().strip()
+            if not self._worklist_gate(serial):
+                self._lock_controls()
+                return
+            self._attempt_serial = serial if serial_override else None
             self._cancel.clear()
             # These factory builders run on Qt's thread to freeze widget state.
             # Only the returned factories may open instruments on the worker.
@@ -505,10 +672,11 @@ class SessionPage(QWidget):
                 test_factory = self.live_run_factory(recipe, "test_only", self._cancel,
                     test_start_method="external_restart") if run_tests else None
                 cal_factory = self.live_run_factory(recipe, "calibration", self._cancel) if run_calibration else None
-            starting_point = (select_session_seed(self.store.active(), recipe, record["revision"])
+            starting_point = (self.store.read(lambda session: select_session_seed(session, recipe, record["revision"]))
                               if self._mode != "simulation" and run_calibration else None)
             self._attempt_id = self.store.begin_unit(serial, recipe.to_dict(), record["revision"], run_tests=run_tests,
-                                                     run_calibration=run_calibration, serial_override=serial_override)
+                                                     run_calibration=run_calibration, serial_override=serial_override,
+                                                     station=self._station())
             self._session = self.store.active()
             self._attempt_recorded = False
             self._stop_pending = False
@@ -524,16 +692,24 @@ class SessionPage(QWidget):
             self._future = self._executor.submit(self._start_worker, recipe, serial,
                                                 copy.deepcopy(self._session["operator"]), record["revision"],
                                                 cal_factory, test_factory, run_tests, starting_point=starting_point,
-                                                run_calibration=run_calibration, serial_override=serial_override)
+                                                run_calibration=run_calibration, serial_override=serial_override,
+                                                station=self._station())
         except Exception as exc:
             self.detail.setText(str(exc))
         self._lock_controls()
 
-    def _start_worker(self, recipe, serial, operator, revision, cal_factory, test_factory, run_tests, *, starting_point=None, run_calibration=True, serial_override=False):
+    def _station(self):
+        try:
+            return str(self.station_name() or "").strip() or None
+        except Exception:
+            return None
+
+    def _start_worker(self, recipe, serial, operator, revision, cal_factory, test_factory, run_tests, *, starting_point=None, run_calibration=True, serial_override=False, station=None):
         try:
             self.flow = self.engine = ProductionFlow(recipe, serial, operator, revision,
                 cal_factory, test_factory, cancellation_event=self._cancel, run_tests=run_tests,
-                starting_point=starting_point, run_calibration=run_calibration, serial_override=serial_override)
+                starting_point=starting_point, run_calibration=run_calibration, serial_override=serial_override,
+                station=station or "UNKNOWN STATION")
             self.flow.start()
             return self._snapshot_worker()
         except Exception as exc:
@@ -609,6 +785,8 @@ class SessionPage(QWidget):
         self.variant.setEnabled(not active and logged_in and not pending)
         self.serial.setEnabled(not active and logged_in and not pending)
         self.other_number.setEnabled(not active and logged_in and not pending)
+        self.download_serials.setEnabled(not active and not self._downloading)
+        self.download_serials.setText("Downloading…" if self._downloading else "Download serials")
         for button, process in ((self.calibrate, "calibration"),
                                 (self.test_only, "test_only")):
             reason = self._readiness(process) if not active else ""
@@ -627,7 +805,7 @@ class SessionPage(QWidget):
                 self.snapshot = future.result()
                 self._render_run(self.snapshot)
                 if self.snapshot and not self.snapshot.get("is_running"):
-                    self._reset_serial_mode()
+                    self._reset_serial_mode(keep_for_serial=self._attempt_serial)
                     self._session = self.store.active()
                     self._last_report = ((self._session or {}).get("report_paths") or {}).get("html")
                     self.report_saved.emit()
@@ -707,10 +885,9 @@ class SessionPage(QWidget):
         run_calibration = snapshot.get("run_calibration", self._run_calibration)
         if not run_calibration and (self._session or {}).get("session_mode") == "both_required":
             # The test is a separate attempt, but the operator sees the whole paired unit.
-            current = next((item for item in self.store.summarize(self.store.active() or {}, evidence=True)
-                            if self._attempt_id in item.get("attempt_ids", [])), None)
-            if current and current.get("calibration_result") == "PASS":
-                details = ([item for item in current.get("stage_details", []) if not is_test_stage(item.get("name", ""))]
+            paired = self.store.paired_stage_details(self._attempt_id)
+            if paired and paired[0] == "PASS":
+                details = ([item for item in paired[1] if not is_test_stage(item.get("name", ""))]
                     + [item for item in details if is_test_stage(item.get("name", ""))])
                 run_calibration = True
         self._render_stages(details, tests_not_run=not run_tests,
