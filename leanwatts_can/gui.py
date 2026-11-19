@@ -121,6 +121,9 @@ class CalibrationWindow(QMainWindow):
         self.recipes.profiles_changed.connect(self.test_page.set_profiles)
         self.recipes.profiles_changed.connect(self.firmware_page.set_profiles)
         self.operator_page.station_name = lambda: self.dashboard_settings.settings()["station_name"]
+        self.operator_page.fetch_worklist = self.fetch_worklist
+        self.operator_page.fetch_work_orders = self.fetch_work_orders
+        self.operator_page.sign_off_work_order = self.sign_off_work_order
         self.operator_page.live_readiness = self._operator_live_reason
         self.operator_page.live_run_factory = self._operator_live_factory
         self.test_controller = TestProgramController(self, self.test_page)
@@ -149,6 +152,20 @@ class CalibrationWindow(QMainWindow):
         Raises ValueError with an operator-facing message."""
         try:
             return self.dashboard_settings.client().work_order_serials(wo_ref)
+        except DashboardError as exc:
+            raise ValueError(exc.message) from None
+
+    def fetch_work_orders(self):
+        """The EoL work-order list for the dropdown. Runs on a background job; raises ValueError with a plain message."""
+        try:
+            return self.dashboard_settings.client().work_orders()
+        except DashboardError as exc:
+            raise ValueError(exc.message) from None
+
+    def sign_off_work_order(self, wo_ref, operator, note, station):
+        """Post one sign-off. Online only; nothing is queued. Raises ValueError with a plain message."""
+        try:
+            return self.dashboard_settings.client().sign_off(wo_ref, operator, note, station)
         except DashboardError as exc:
             raise ValueError(exc.message) from None
 

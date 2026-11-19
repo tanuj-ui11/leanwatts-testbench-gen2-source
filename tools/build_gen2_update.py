@@ -59,6 +59,14 @@ WHAT IS NEW (since 1.1.11)
 - Operator and station are recorded when a charger starts.
 - Settings > Dashboard: saving, testing or removing the API key no longer asks for an
   administrator password (the key is issued by an administrator every 90 days).
+- Work order dropdown (Auto Calibration Session): pick a work order from the dashboard list
+  (open ones first, then signed-off ones for 14 days, then Past work orders) or still type
+  one. The list refreshes when the tab opens, when you press Download serials and from the
+  Refresh button; offline it shows the last list marked as old.
+- Sign off: closes a work order on the dashboard after an operator login and a confirmation
+  that shows the untested count, with an optional note. It needs the network; nothing is
+  queued offline. Signing off the same work order twice shows the first sign-off.
+- Fixed: Download serials always said "Dashboard not configured" even with the dashboard set up.
 - Variant Recipes > Import preset: fill a new variant from a preset file (JSON, or a
   two-column CSV of field,value). The values are only a draft until you press Save variant.
 
