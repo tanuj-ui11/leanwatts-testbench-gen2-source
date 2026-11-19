@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication, QDialog
 from leanwatts_can import theme
 from leanwatts_can import work_order_list as wol
 from leanwatts_can.gui import CalibrationWindow
+from leanwatts_can.session_page import NOTE_ROLE
 from leanwatts_can.session_page import SessionPage, SignOffDialog, WorkOrderCombo
 from leanwatts_can.tests.test_worklist import CONTRACT
 
@@ -96,7 +97,7 @@ class Base(unittest.TestCase):
 
     def items(self):
         combo = self.page.work_order
-        return [combo.itemText(i) for i in range(combo.count())]
+        return [combo.itemText(i) for i in range(combo.count()) if not combo.itemData(i, NOTE_ROLE)]
 
 
 class WiringTests(Base):
@@ -178,6 +179,18 @@ class RefreshTests(Base):
         self.assertEqual(len(self.items()), 5)
         self.assertIn("old work-order list", self.page.work_order_status.text())
         self.assertNotIn("Traceback", self.page.detail.text())
+
+    def test_old_list_note_sits_at_the_top_of_the_dropdown_and_cannot_be_picked(self):
+        self.load_list()
+        self.page.fetch_work_orders = Mock(side_effect=ValueError("Could not reach the dashboard"))
+        self.page.refresh_work_orders()
+        self.wait_for(lambda: not self.page._wo_refreshing, "refresh did not finish")
+        combo = self.page.work_order
+        self.assertTrue(combo.itemData(0, NOTE_ROLE))
+        self.assertIn("old work-order list", combo.itemText(0))
+        self.assertFalse(combo.model().item(0).isEnabled())
+        self.assertIn("old work-order list", combo.toolTip())
+        self.assertFalse(self.page.work_order_status.isVisibleTo(self.page))
 
     def test_not_configured_shows_cache_marked_old_and_no_dialog(self):
         wol.WorkOrderCache(self.temp.name).save(wol.parse_work_orders(LIST)[0])

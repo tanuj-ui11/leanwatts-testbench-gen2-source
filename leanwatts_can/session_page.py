@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QStyle, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -69,6 +69,9 @@ def local_time(value):
         return "—"
 
 
+NOTE_ROLE = Qt.ItemDataRole.UserRole + 1  # marks the greyed status note at the top of the dropdown
+
+
 class WorkOrderCombo(QComboBox):
     """Editable work-order field with a dropdown. Keeps the QLineEdit-style text()/setText()/setPlaceholderText()
     API; picking an entry puts only the bare work-order number in the field."""
@@ -79,6 +82,7 @@ class WorkOrderCombo(QComboBox):
         self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.setCompleter(None)  # inline completion would type the whole display line into the field
         self.setMaxVisibleItems(15)
+        self.view().setMinimumWidth(430)  # the list shows customer and counts; the field itself stays narrow
         self.activated.connect(self._picked)
 
     def text(self):
@@ -90,11 +94,17 @@ class WorkOrderCombo(QComboBox):
     def setPlaceholderText(self, value):
         self.lineEdit().setPlaceholderText(value)
 
-    def set_entries(self, entries):
-        """Replace the list without touching what the operator has typed."""
+    def set_entries(self, entries, note=""):
+        """Replace the list without touching what the operator has typed. A note is shown greyed out at the top."""
         typed = self.text()
         self.blockSignals(True)
         self.clear()
+        if note:
+            self.addItem(note, "")
+            self.setItemData(0, True, NOTE_ROLE)
+            item = self.model().item(0)
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            item.setForeground(QColor(theme.MUTED))
         for entry in entries:
             self.addItem(entry.text, entry.wo_number)
             if entry.kind == "heading":
@@ -327,7 +337,10 @@ class SessionPage(QWidget):
         self.work_order.setMinimumHeight(34)
         self.work_order.lineEdit().textChanged.connect(self._update_signoff_enabled)
         worklist_row.addWidget(self.work_order, 1)
-        self.refresh_work_orders_button = QPushButton("Refresh")
+        self.refresh_work_orders_button = QPushButton()
+        self.refresh_work_orders_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        self.refresh_work_orders_button.setFixedWidth(40)
+        self.refresh_work_orders_button.setAccessibleName("Refresh work orders")
         self.refresh_work_orders_button.setMinimumHeight(34)
         self.refresh_work_orders_button.setToolTip("Reload the work-order list from the dashboard")
         self.refresh_work_orders_button.clicked.connect(self.refresh_work_orders)
@@ -342,7 +355,9 @@ class SessionPage(QWidget):
         self.sign_off_button.clicked.connect(self._sign_off)
         worklist_row.addWidget(self.sign_off_button)
         unit.body.addLayout(worklist_row)
+        # Not shown: the page has no spare line. The text is kept for the dropdown note and tooltips.
         self.work_order_status = caption("")
+        self.work_order_status.hide()
         unit.body.addWidget(self.work_order_status)
         self.worklist_status = caption("No work-order serials downloaded. Scans are not checked against a list.")
         unit.body.addWidget(self.worklist_status)
@@ -569,13 +584,15 @@ class SessionPage(QWidget):
             self.work_order_status.setText(reason or "")
             return
         rows, fetched = cached
-        self._set_work_orders(rows)
-        self.work_order_status.setText(
-            f"{reason + ' ' if reason else ''}Showing the old work-order list from {wol.age_text(fetched)}.".strip())
+        text = f"{reason + ' ' if reason else ''}Showing the old work-order list from {wol.age_text(fetched)}.".strip()
+        self.work_order_status.setText(text)
+        self._set_work_orders(rows, text)
 
-    def _set_work_orders(self, rows):
+    def _set_work_orders(self, rows, note=""):
         self._wo_rows = list(rows)
-        self.work_order.set_entries(wol.build_entries(self._wo_rows, datetime.now().astimezone()))
+        self.work_order.set_entries(wol.build_entries(self._wo_rows, datetime.now().astimezone()), note)
+        self.work_order.setToolTip(note or self.work_order_status.text())
+        self.refresh_work_orders_button.setToolTip("Reload the work-order list from the dashboard. " + (note or self.work_order_status.text()))
 
     def refresh_work_orders(self):
         if self._closing or self._wo_refreshing:
@@ -605,12 +622,12 @@ class SessionPage(QWidget):
         if error or rows is None:
             self._show_cached_work_orders("Could not refresh the work-order list.")
             return
+        self.work_order_status.setText(f"{len(rows)} work orders · updated {datetime.now().strftime('%H:%M')}")
         self._set_work_orders(rows)
         try:
             self._wo_cache.save(rows)
         except OSError:
             pass  # the list still works; only the offline copy is missing
-        self.work_order_status.setText(f"{len(rows)} work orders · updated {datetime.now().strftime('%H:%M')}")
 
     # --- sign-off ---
 
