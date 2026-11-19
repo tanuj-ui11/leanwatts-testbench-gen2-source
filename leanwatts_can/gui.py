@@ -97,8 +97,9 @@ class CalibrationWindow(QMainWindow):
         self.accounts_page = AccountSettings(self.data_dir)
         self.update_page = UpdateSettingsPage(self.data_dir, busy_check=self._update_busy,
             current_version=VERSION, can_configure=self._authorize_update_config)
-        self.dashboard_page = DashboardSettingsPage(self.dashboard_settings,
-            can_configure=self._authorize_update_config, on_saved=self.outbox_service.resume)
+        # The API key is issued by an administrator every 90 days under a separate manual
+        # process, so saving, testing or removing it needs no second administrator login.
+        self.dashboard_page = DashboardSettingsPage(self.dashboard_settings, on_saved=self.outbox_service.resume)
         self.outbox_service.changed.connect(self.history_page.refresh_status)
         self.settings_page = QTabWidget()
         self.settings_page.addTab(self.accounts_page, "Operator accounts")

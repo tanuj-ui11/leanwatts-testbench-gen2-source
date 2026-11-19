@@ -1,4 +1,4 @@
-"""Settings > Dashboard: address, station, API key (admin only). The key is never shown back or logged."""
+"""Settings > Dashboard: address, station, API key. The key is never shown back or logged."""
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor

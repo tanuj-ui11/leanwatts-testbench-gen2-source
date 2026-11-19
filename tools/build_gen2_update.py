@@ -56,6 +56,8 @@ WHAT IS NEW (since 1.1.11)
   shows the last demand and the measured current.
 - Much faster with large sessions (100+ chargers).
 - Operator and station are recorded when a charger starts.
+- Settings > Dashboard: saving, testing or removing the API key no longer asks for an
+  administrator password (the key is issued by an administrator every 90 days).
 {"- This build replaces the first 1.1.12 package, which did not include the Other number and cutoff step-down fixes." + chr(10) if base == "1.1.12" else ""}
 NOT YET VERIFIED ON THE BENCH
 The cutoff step-down fix, the Generate report and dashboard sending, and warn-only
