@@ -19,12 +19,13 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
-from build_gen2_delta import CSC, build as build_delta, digest, read_release, safe_name, version_parts  # noqa: E402
+from build_gen2_delta import CSC, build as build_delta, digest, read_release, render_installer, safe_name, version_parts  # noqa: E402
 
 PREFIX = "CAN-Calibration/"
 APPLICATION = "leanwatts-testbench-gen2"
@@ -58,6 +59,14 @@ WHAT IS NEW (since 1.1.11)
 - Operator and station are recorded when a charger starts.
 - Settings > Dashboard: saving, testing or removing the API key no longer asks for an
   administrator password (the key is issued by an administrator every 90 days).
+- Variant Recipes > Import preset: fill a new variant from a preset file (JSON, or a
+  two-column CSV of field,value). The values are only a draft until you press Save variant.
+
+NEW PC (full Setup)
+Run Leanwatts-Testbench-Gen2-Setup-{version}.exe. Copy the old PC's
+CAN-Calibration\\calibration_data folder to a USB stick first and choose it in Setup under
+"Existing calibration_data folder"; recipes, operator accounts, settings and reports carry over.
+The dashboard API key is stored per Windows account and must be entered again on the new PC.
 {"- This build replaces the first 1.1.12 package, which did not include the Other number and cutoff step-down fixes." + chr(10) if base == "1.1.12" else ""}
 NOT YET VERIFIED ON THE BENCH
 The cutoff step-down fix, the Generate report and dashboard sending, and warn-only
@@ -121,6 +130,7 @@ def main(argv=None):
     parser.add_argument("--base", type=Path, required=True, help="Exact complete 1.1.11 win64 ZIP")
     parser.add_argument("--output-dir", type=Path, required=True, help="New (empty or absent) output directory")
     parser.add_argument("--source-root", type=Path, default=ROOT, help="Source tree holding leanwatts_can (default: this repo)")
+    parser.add_argument("--setup", action="store_true", help="Also build the full Setup EXE for a fresh PC")
     parser.add_argument("--compiler", type=Path, default=CSC, help="csc.exe, or a csc-compatible wrapper")
     args = parser.parse_args(argv)
 
@@ -174,6 +184,23 @@ def main(argv=None):
 
     delta = out / exe_name
     report = build_delta(args.base, full, version, delta, compiler=args.compiler, icon=icon, logo=logo)
+    if args.setup:
+        setup = out / f"Leanwatts-Testbench-Gen2-Setup-{version}.exe"
+        work = out / "setup.build"
+        work.mkdir()
+        generated = work / "CanCalibrationSetup.cs"
+        generated.write_text(render_installer((root / "tools/CanCalibrationSetup.cs").read_text(encoding="utf-8"), version,
+                             artifact(full)["sha256"], incremental=False), encoding="utf-8")
+        subprocess.run([str(args.compiler), "/nologo", "/target:winexe", "/platform:anycpu", "/optimize+",
+            "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", "/r:System.IO.Compression.dll",
+            "/r:System.IO.Compression.FileSystem.dll", "/r:System.Web.Extensions.dll", "/out:" + str(setup),
+            "/win32icon:" + str(icon), "/resource:" + str(full) + ",payload.zip",
+            "/resource:" + str(logo) + ",branding.png", str(generated)], cwd=root, check=True)
+        info = artifact(setup)
+        setup.with_suffix(".update.json").write_text(json.dumps(dict(schema=1, application=APPLICATION, version=version,
+            package_type="full", installer=dict(filename=setup.name, asset_name=setup.name, sha256=info["sha256"], size=info["bytes"])),
+            indent=2) + "\n", encoding="utf-8")
+        print(json.dumps({"setup": info}, indent=2), flush=True)
     update_json = delta.with_suffix(".update.json")
     exe_info = artifact(delta)
     local = out / f"Leanwatts-Testbench-Gen2-Update-{base_version}-to-{version}-local.zip"
