@@ -97,8 +97,9 @@ class CalibrationWindow(QMainWindow):
         self.accounts_page = AccountSettings(self.data_dir)
         self.update_page = UpdateSettingsPage(self.data_dir, busy_check=self._update_busy,
             current_version=VERSION, can_configure=self._authorize_update_config)
-        self.dashboard_page = DashboardSettingsPage(self.dashboard_settings,
-            can_configure=self._authorize_update_config, on_saved=self.outbox_service.resume)
+        # The API key is issued by an administrator every 90 days under a separate manual
+        # process, so saving, testing or removing it needs no second administrator login.
+        self.dashboard_page = DashboardSettingsPage(self.dashboard_settings, on_saved=self.outbox_service.resume)
         self.outbox_service.changed.connect(self.history_page.refresh_status)
         self.settings_page = QTabWidget()
         self.settings_page.addTab(self.accounts_page, "Operator accounts")
@@ -120,6 +121,9 @@ class CalibrationWindow(QMainWindow):
         self.recipes.profiles_changed.connect(self.test_page.set_profiles)
         self.recipes.profiles_changed.connect(self.firmware_page.set_profiles)
         self.operator_page.station_name = lambda: self.dashboard_settings.settings()["station_name"]
+        self.operator_page.fetch_worklist = self.fetch_worklist
+        self.operator_page.fetch_work_orders = self.fetch_work_orders
+        self.operator_page.sign_off_work_order = self.sign_off_work_order
         self.operator_page.live_readiness = self._operator_live_reason
         self.operator_page.live_run_factory = self._operator_live_factory
         self.test_controller = TestProgramController(self, self.test_page)
@@ -148,6 +152,20 @@ class CalibrationWindow(QMainWindow):
         Raises ValueError with an operator-facing message."""
         try:
             return self.dashboard_settings.client().work_order_serials(wo_ref)
+        except DashboardError as exc:
+            raise ValueError(exc.message) from None
+
+    def fetch_work_orders(self):
+        """The EoL work-order list for the dropdown. Runs on a background job; raises ValueError with a plain message."""
+        try:
+            return self.dashboard_settings.client().work_orders()
+        except DashboardError as exc:
+            raise ValueError(exc.message) from None
+
+    def sign_off_work_order(self, wo_ref, operator, note, station):
+        """Post one sign-off. Online only; nothing is queued. Raises ValueError with a plain message."""
+        try:
+            return self.dashboard_settings.client().sign_off(wo_ref, operator, note, station)
         except DashboardError as exc:
             raise ValueError(exc.message) from None
 

@@ -1,6 +1,7 @@
 """Bench client for the LeanWatts dashboard EoL API. Standard library only; importing performs no I/O."""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import socket
@@ -169,6 +170,26 @@ class DashboardClient:
 
     def work_order_serials(self, ref):
         return self._request("GET", "/work-orders/" + self._ref(ref, "work order number") + "/serials")
+
+    def work_orders(self):
+        return self._request("GET", "/work-orders")
+
+    def sign_off(self, ref, operator, note=None, station=None):
+        """Close one work order. The Idempotency-Key depends only on the work order, so a retry (or a second
+        press) can never create a second sign-off; the dashboard answers with the first one."""
+        quoted = self._ref(ref, "work order number")
+        if not isinstance(operator, str) or not 1 <= len(operator.strip()) <= 120:
+            raise ValueError("Sign-off needs the operator name and ID.")
+        body = {"operator": operator.strip()}
+        if note is not None:
+            if not isinstance(note, str) or len(note.strip()) > 1000:
+                raise ValueError("The sign-off note must be 1000 characters or fewer.")
+            if note.strip():
+                body["note"] = note.strip()
+        if station is not None and str(station).strip():
+            body["station"] = str(station).strip()[:120]
+        key = "signoff-" + hashlib.sha256(ref.strip().upper().encode("utf-8")).hexdigest()[:40]
+        return self._request("POST", "/work-orders/" + quoted + "/signoff", body, idempotency_key=key)
 
     def serial(self, serial):
         return self._request("GET", "/serials/" + self._ref(serial, "serial number"))

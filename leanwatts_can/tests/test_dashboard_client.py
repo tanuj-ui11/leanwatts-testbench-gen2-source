@@ -68,6 +68,15 @@ class Handler(BaseHTTPRequestHandler):
             if tail == "leaky":
                 return self._json(400, {"error": {"code": "Bad Key " + KEY}})
             return self._json(200, {"serial": tail})
+        if path == "/api/v1/eol/work-orders":
+            return self._json(200, {"generated_at": "2026-11-19T10:00:00+00:00", "work_orders": []})
+        if path.startswith("/api/v1/eol/work-orders/") and path.endswith("/signoff"):
+            ref = path.split("/")[-2]
+            if ref == "WO-MISSING":
+                return self._json(404, {"error": {"code": "unknown_work_order"}})
+            sent = json.loads(body.decode("utf-8")) if body else {}
+            return self._json(200, {"wo_number": ref, "already_signed_off": False,
+                                    "signoff": {"signed_off_at": "2026-11-19T10:00:00+00:00", "operator": sent.get("operator")}})
         if path == "/api/v1/eol/work-orders/WO-R/serials":
             return self._send(302, b"", {"Location": "/api/v1/eol/ping"})
         return self._json(404, {"error": {"code": "not_here"}})
@@ -133,6 +142,39 @@ class DashboardClientTests(unittest.TestCase):
         self.assertEqual(sent["client_report_id"], CID)
         self.assertEqual(sent["serial"], "WO-S00429-1-045")
         self.assertEqual(sent["report"], {"verdict": "PASS"})
+
+    def test_work_orders_is_a_get_with_the_key(self):
+        result = self.client.work_orders()
+        self.assertEqual(result["work_orders"], [])
+        hit = self.hits("/api/v1/eol/work-orders")[0]
+        self.assertEqual(hit["method"], "GET")
+        self.assertEqual(hit["headers"]["x-api-key"], KEY)
+
+    def test_sign_off_posts_body_with_a_key_that_depends_only_on_the_work_order(self):
+        path = "/api/v1/eol/work-orders/WO-S00410/signoff"
+        first = self.client.sign_off("WO-S00410", "Asha (1042)", "two units returned", "Bench 1")
+        self.assertEqual(first["wo_number"], "WO-S00410")
+        self.client.sign_off(" wo-s00410 ".upper(), "Someone Else (7)", None, None)
+        hits = self.hits(path)
+        self.assertEqual(len(hits), 2)
+        self.assertEqual(hits[0]["method"], "POST")
+        self.assertEqual(json.loads(hits[0]["body"]),
+                         {"operator": "Asha (1042)", "note": "two units returned", "station": "Bench 1"})
+        self.assertEqual(json.loads(hits[1]["body"]), {"operator": "Someone Else (7)"})
+        self.assertTrue(hits[0]["headers"]["idempotency-key"].startswith("signoff-"))
+        self.assertEqual(hits[0]["headers"]["idempotency-key"], hits[1]["headers"]["idempotency-key"])
+        self.client.sign_off("WO-S00411", "Asha (1042)")
+        other = self.hits("/api/v1/eol/work-orders/WO-S00411/signoff")[0]
+        self.assertNotEqual(other["headers"]["idempotency-key"], hits[0]["headers"]["idempotency-key"])
+
+    def test_sign_off_errors_and_validation(self):
+        self.expect("not_found", lambda: self.client.sign_off("WO-MISSING", "Asha (1042)"))
+        with self.assertRaises(ValueError):
+            self.client.sign_off("WO-S00410", "")
+        with self.assertRaises(ValueError):
+            self.client.sign_off("WO-S00410", "Asha (1042)", "x" * 1001)
+        with self.assertRaises(ValueError):
+            self.client.sign_off("", "Asha (1042)")
 
     def test_serial_path_is_quoted_and_fetched(self):
         self.assertEqual(self.client.serial("WO-S00429-1-045")["serial"], "WO-S00429-1-045")

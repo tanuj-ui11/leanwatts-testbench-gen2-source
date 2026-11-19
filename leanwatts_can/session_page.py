@@ -9,12 +9,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QRunnable, QThreadPool, QTimer, QUrl, Signal
+from PySide6.QtCore import QRunnable, Qt, QThreadPool, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QStyle, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -25,6 +25,7 @@ from .production_flow import ProductionFlow, validate_test_recipe
 from .session_seed import select_session_seed, starting_point_text
 from .session_store import OperatorStore, SessionStore, is_test_stage, test_stage_name
 from .serial_numbers import validate_serial
+from . import work_order_list as wol
 from .worklist import OK as WORKLIST_OK, Worklist, classify, normalise_scan
 
 
@@ -68,6 +69,91 @@ def local_time(value):
         return "—"
 
 
+NOTE_ROLE = Qt.ItemDataRole.UserRole + 1  # marks the greyed status note at the top of the dropdown
+
+
+class WorkOrderCombo(QComboBox):
+    """Editable work-order field with a dropdown. Keeps the QLineEdit-style text()/setText()/setPlaceholderText()
+    API; picking an entry puts only the bare work-order number in the field."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.setCompleter(None)  # inline completion would type the whole display line into the field
+        self.setMaxVisibleItems(15)
+        self.view().setMinimumWidth(430)  # the list shows customer and counts; the field itself stays narrow
+        self.activated.connect(self._picked)
+
+    def text(self):
+        return self.lineEdit().text()
+
+    def setText(self, value):
+        self.setEditText(value)
+
+    def setPlaceholderText(self, value):
+        self.lineEdit().setPlaceholderText(value)
+
+    def set_entries(self, entries, note=""):
+        """Replace the list without touching what the operator has typed. A note is shown greyed out at the top."""
+        typed = self.text()
+        self.blockSignals(True)
+        self.clear()
+        if note:
+            self.addItem(note, "")
+            self.setItemData(0, True, NOTE_ROLE)
+            item = self.model().item(0)
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            item.setForeground(QColor(theme.MUTED))
+        for entry in entries:
+            self.addItem(entry.text, entry.wo_number)
+            if entry.kind == "heading":
+                item = self.model().item(self.count() - 1)
+                item.setFlags(Qt.ItemFlag.NoItemFlags)
+                item.setForeground(QColor(theme.MUTED))
+        self.setCurrentIndex(-1)
+        self.blockSignals(False)
+        self.setEditText(typed)
+
+    def _picked(self, index):
+        number = self.itemData(index)
+        if number:
+            self.setEditText(number)
+
+
+class SignOffDialog(QDialog):
+    """Confirms one sign-off and takes an optional note. The caller reads .note after Accepted."""
+
+    def __init__(self, reference, untested, total, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Sign off work order")
+        self.setMinimumWidth(420)
+        body = QVBoxLayout(self)
+        heading = QLabel(f"Sign off {reference}?")
+        heading.setStyleSheet("font-size: 23px; font-weight: 600;")
+        body.addWidget(heading)
+        if untested is None:
+            counts = "The number of untested units is not known."
+        else:
+            counts = f"{untested} of {total} units are untested."
+        body.addWidget(caption(counts + " Signing off closes this work order on the dashboard; it is kept in the list for "
+                               f"{wol.SIGNOFF_DAYS} days."))
+        body.addWidget(caption("Note (optional)"))
+        self.note_edit = QPlainTextEdit()
+        self.note_edit.setPlaceholderText("For example: remaining units returned to the supplier")
+        self.note_edit.setFixedHeight(80)
+        body.addWidget(self.note_edit)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Sign off")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        body.addWidget(buttons)
+
+    @property
+    def note(self):
+        return self.note_edit.toPlainText().strip()[:1000]
+
+
 class SessionModeDialog(QDialog):
     """Select the production rule once; resuming never changes it."""
     def __init__(self, parent=None):
@@ -106,6 +192,8 @@ class SessionPage(QWidget):
     settings_requested = Signal()
     manual_requested = Signal()
     _download_finished = Signal(int, str, object, str)  # generation, reference, worklist, error
+    _work_orders_loaded = Signal(int, object, str)  # generation, rows, error
+    _signoff_finished = Signal(int, str, object, str)  # generation, reference, answer, error
 
     STAGES = ("Baseline open voltage", "Baseline current", "Charger parameters", "Current calibration", "Voltage calibration",
               "Open-circuit voltage test", "Full-current test", "End-current cutoff test")
@@ -143,6 +231,9 @@ class SessionPage(QWidget):
         self._readiness_cache = {}
         # Injected by the app: fetch_worklist(wo_ref) -> bench API payload. None means no dashboard is configured.
         self.fetch_worklist = None
+        # Injected by the app: fetch_work_orders() -> dashboard list payload; sign_off_work_order(ref, operator, note, station).
+        self.fetch_work_orders = None
+        self.sign_off_work_order = None
         # Injected by the app: the configured station name, stamped on each attempt when it begins.
         self.station_name = lambda: ""
         self._worklist = None
@@ -151,9 +242,23 @@ class SessionPage(QWidget):
         self._download_pool = QThreadPool(self)
         self._download_pool.setMaxThreadCount(1)
         self._download_finished.connect(self._download_done)
+        self._wo_cache = wol.WorkOrderCache(self.data_dir)
+        self._wo_rows = []
+        self._wo_refreshing = False
+        self._wo_generation = 0
+        self._wo_pool = QThreadPool(self)
+        self._wo_pool.setMaxThreadCount(1)
+        self._work_orders_loaded.connect(self._work_orders_done)
+        self._wo_shown = False
+        self._signing_off = False
+        self._signoff_generation = 0
+        self._signoff_pool = QThreadPool(self)
+        self._signoff_pool.setMaxThreadCount(1)
+        self._signoff_finished.connect(self._signoff_done)
         self._pending_warning_serial = None
         self._carried_override_serial = None  # serial the kept Other-number choice belongs to
         self._build()
+        self._show_cached_work_orders()
         try:
             self._session = self.store.active()
         except Exception as exc:
@@ -227,15 +332,33 @@ class SessionPage(QWidget):
         worklist_row = QHBoxLayout()
         worklist_row.setSpacing(8)
         worklist_row.addWidget(caption("Work order"))
-        self.work_order = QLineEdit()
+        self.work_order = WorkOrderCombo()
         self.work_order.setPlaceholderText("WO-S00429")
         self.work_order.setMinimumHeight(34)
+        self.work_order.lineEdit().textChanged.connect(self._update_signoff_enabled)
         worklist_row.addWidget(self.work_order, 1)
+        self.refresh_work_orders_button = QPushButton()
+        self.refresh_work_orders_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        self.refresh_work_orders_button.setFixedWidth(40)
+        self.refresh_work_orders_button.setAccessibleName("Refresh work orders")
+        self.refresh_work_orders_button.setMinimumHeight(34)
+        self.refresh_work_orders_button.setToolTip("Reload the work-order list from the dashboard")
+        self.refresh_work_orders_button.clicked.connect(self.refresh_work_orders)
+        worklist_row.addWidget(self.refresh_work_orders_button)
         self.download_serials = QPushButton("Download serials")
         self.download_serials.setMinimumHeight(34)
         self.download_serials.clicked.connect(self._download_worklist)
         worklist_row.addWidget(self.download_serials)
+        self.sign_off_button = QPushButton("Sign off")
+        self.sign_off_button.setMinimumHeight(34)
+        self.sign_off_button.setToolTip("Close this work order on the dashboard (asks for your login)")
+        self.sign_off_button.clicked.connect(self._sign_off)
+        worklist_row.addWidget(self.sign_off_button)
         unit.body.addLayout(worklist_row)
+        # Not shown: the page has no spare line. The text is kept for the dropdown note and tooltips.
+        self.work_order_status = caption("")
+        self.work_order_status.hide()
+        unit.body.addWidget(self.work_order_status)
         self.worklist_status = caption("No work-order serials downloaded. Scans are not checked against a list.")
         unit.body.addWidget(self.worklist_status)
         actions = QHBoxLayout()
@@ -445,6 +568,146 @@ class SessionPage(QWidget):
 
         self._download_pool.start(_FetchJob(
             work, lambda result, error: self._download_finished.emit(generation, reference, result, error)))
+        self.refresh_work_orders()
+
+    # --- work-order list (its own generation counter, signal and job; independent of the serial download) ---
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._wo_shown:
+            self._wo_shown = True
+            self.refresh_work_orders()
+
+    def _show_cached_work_orders(self, reason=""):
+        cached = self._wo_cache.load()
+        if cached is None:
+            self.work_order_status.setText(reason or "")
+            return
+        rows, fetched = cached
+        text = f"{reason + ' ' if reason else ''}Showing the old work-order list from {wol.age_text(fetched)}.".strip()
+        self.work_order_status.setText(text)
+        self._set_work_orders(rows, text)
+
+    def _set_work_orders(self, rows, note=""):
+        self._wo_rows = list(rows)
+        self.work_order.set_entries(wol.build_entries(self._wo_rows, datetime.now().astimezone()), note)
+        self.work_order.setToolTip(note or self.work_order_status.text())
+        self.refresh_work_orders_button.setToolTip("Reload the work-order list from the dashboard. " + (note or self.work_order_status.text()))
+
+    def refresh_work_orders(self):
+        if self._closing or self._wo_refreshing:
+            return
+        fetch = self.fetch_work_orders
+        if fetch is None:
+            self._show_cached_work_orders("Dashboard not configured.")
+            return
+        self._wo_refreshing = True
+        self._wo_generation += 1
+        generation = self._wo_generation
+        self.refresh_work_orders_button.setEnabled(False)
+
+        def work():
+            rows, skipped, _generated = wol.parse_work_orders(fetch())
+            return rows
+
+        self._wo_pool.start(_FetchJob(work, lambda result, error: self._work_orders_loaded.emit(generation, result, error)))
+
+    def _work_orders_done(self, generation, rows, error):
+        if generation != self._wo_generation:
+            return
+        self._wo_refreshing = False
+        self.refresh_work_orders_button.setEnabled(True)
+        if self._closing:
+            return
+        if error or rows is None:
+            self._show_cached_work_orders("Could not refresh the work-order list.")
+            return
+        self.work_order_status.setText(f"{len(rows)} work orders · updated {datetime.now().strftime('%H:%M')}")
+        self._set_work_orders(rows)
+        try:
+            self._wo_cache.save(rows)
+        except OSError:
+            pass  # the list still works; only the offline copy is missing
+
+    # --- sign-off ---
+
+    def _signoff_row(self, reference):
+        for row in self._wo_rows:
+            if row.wo_number.upper() == reference.upper():
+                return row
+        return None
+
+    def _update_signoff_enabled(self, *_):
+        self.sign_off_button.setEnabled(not self.busy and not self._downloading and not self._signing_off
+                                        and wol.valid_reference(self.work_order.text()))
+
+    def _sign_off(self):
+        if self.busy or self._downloading or self._signing_off:
+            return
+        reference = self.work_order.text().strip()
+        if not wol.valid_reference(reference):
+            self.detail.setText("Enter the work-order number, for example WO-S00429.")
+            return
+        if self.sign_off_work_order is None:
+            self.detail.setText("Dashboard not configured")
+            return
+        try:
+            if not self.accounts.list_operators():
+                self.detail.setText("Create the first administrator and operator accounts in Settings.")
+                self.settings_requested.emit()
+                return
+        except Exception as exc:
+            self.detail.setText(str(exc))
+            return
+        login = LoginDialog(self.accounts, self, title="Sign off work order")
+        if login.exec() != QDialog.DialogCode.Accepted or not login.operator:
+            self.detail.setText("Sign-off cancelled. Nothing was recorded.")
+            return
+        operator = login.operator
+        identity = f"{operator['name']} ({operator['id']})"
+        row = self._signoff_row(reference)
+        confirm = SignOffDialog(reference, row.untested if row else None, row.total if row else None, self)
+        if confirm.exec() != QDialog.DialogCode.Accepted:
+            self.detail.setText("Sign-off cancelled. Nothing was recorded.")
+            return
+        note, station, post = confirm.note, self._station(), self.sign_off_work_order
+        self._signing_off = True
+        self._signoff_generation += 1
+        generation = self._signoff_generation
+        self.detail.setText(f"Signing off {reference}…")
+        self._lock_controls()
+
+        def work():
+            return wol.parse_signoff_response(post(reference, identity, note or None, station))
+
+        self._signoff_pool.start(_FetchJob(
+            work, lambda result, error: self._signoff_finished.emit(generation, reference, result, error)))
+
+    def _signoff_done(self, generation, reference, answer, error):
+        if generation != self._signoff_generation:
+            return
+        self._signing_off = False
+        self._lock_controls()
+        if self._closing:
+            return
+        if error or answer is None:
+            self.detail.setText(f"Sign-off failed: {error or 'no answer returned'}. Nothing was recorded.")
+            return
+        already, signoff = answer
+        when = wol.signoff_summary(signoff, datetime.now().astimezone().tzinfo)
+        if already:
+            self.detail.setText(f"Already signed off on {when}")
+        else:
+            untested = signoff.get("untested_count")
+            self.detail.setText(f"Signed off {reference} on {when}."
+                                + (f" {untested} untested units were recorded." if untested else ""))
+        self._set_work_orders(wol.with_signoff(self._wo_rows, reference, signoff))
+        try:
+            self._wo_cache.save(self._wo_rows)
+        except OSError:
+            pass
+        self._wo_refreshing = False  # a refresh that began before the sign-off is now stale
+        self.refresh_work_orders()
 
     def _download_done(self, generation, reference, worklist, error):
         if generation != self._download_generation:
@@ -787,6 +1050,8 @@ class SessionPage(QWidget):
         self.other_number.setEnabled(not active and logged_in and not pending)
         self.download_serials.setEnabled(not active and not self._downloading)
         self.download_serials.setText("Downloading…" if self._downloading else "Download serials")
+        self._update_signoff_enabled()
+        self.sign_off_button.setText("Signing off…" if self._signing_off else "Sign off")
         for button, process in ((self.calibrate, "calibration"),
                                 (self.test_only, "test_only")):
             reason = self._readiness(process) if not active else ""

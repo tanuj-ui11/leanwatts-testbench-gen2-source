@@ -1,7 +1,7 @@
 # Leanwatts Testbench Gen2: architecture and context
 
 This is a quick-start for engineers and AI agents. It describes the code as of **1.1.11**
-(`leanwatts_can/version.py:3`, release date 2026-11-12). All `file:line` references are relative
+(`leanwatts_can/version.py:3`, release date 2026-11-12), plus the 1.1.16 work-order dropdown and sign-off. All `file:line` references are relative
 to the repo root unless they start with a module name, in which case they are under `leanwatts_can/`.
 
 **What it is.** A Windows desktop app (Python 3.12, PySide6) for end-of-line calibration and test of
@@ -72,7 +72,9 @@ Only one workspace may own the instruments at a time. This is enforced by `_work
 | Module | Role |
 |---|---|
 | `gui.py` | Main window, tab wiring, live-run factory and readiness gates, CLI entry point. |
-| `session_page.py` | Production session screen (login, mode, serial scan, Calibration / Test buttons, stage table). |
+| `session_page.py` | Production session screen (login, mode, serial scan, Calibration / Test buttons, stage table). Since 1.1.16 the Work order field is `WorkOrderCombo` (editable dropdown with `text()`/`setText()`), refreshed on its own generation counter and signal, with a Refresh button and a Sign off button (`LoginDialog` then `SignOffDialog`, online only). |
+| `work_order_list.py` | Pure (no Qt). Validates the dashboard work-order list, builds the dropdown entries (open, signed off with days left of 14, "Past work orders" heading) and owns the `work_orders.json` cache. |
+| `dashboard_client.py` | Standard-library client for the dashboard EoL API: `work_order_serials`, `work_orders`, `sign_off` (Idempotency-Key stable per work order), reports. `gui.py` wires `fetch_worklist`, `fetch_work_orders` and `sign_off_work_order` into the session page. |
 | `recipe_page.py` | Variant editor. Persists `profiles.json` (`recipe_page.py:334,474`). |
 | `session_history.py` | History browser, HTML export (`export_html_reports` `:21`). |
 | `load_setup.py` | Load COM settings. `calibration_profile()` (`:211`) freezes the connection plus `AutomationSettings`. |
@@ -182,6 +184,7 @@ installer preserves and imports it (`:584-596`). It is git-ignored, and the in-r
 | Path | Writer | Content |
 |---|---|---|
 | `operators.json` | `OperatorStore` `session_store.py:169` | `{schema:1, operators:[{id,name,role(admin\|lead\|operator),enabled,salt,iterations:600000,password_hash,self_managed_password?}]}` |
+| `work_orders.json` | `WorkOrderCache` `work_order_list.py` | `{schema:1, fetched_at, work_orders:[{wo_number,order,customer,total,tested,passed,failed,untested,last_report_at,state(open\|signed_off\|past),signoff:null\|{signed_off_at,untested_count,total_units}}]}`. Offline copy of the dropdown list, shown marked as old. Never holds serials, operator names or sign-off notes. |
 | `profiles.json` | `RecipePage.save_variant` `recipe_page.py:458-474` | List of `{revision:int, recipe:Recipe.to_dict(), production_ready:bool, validation_error:str}`. Keyed by `recipe.name` (case-insensitive). Revision is incremented on each save. |
 | `station-load-setup.json` | `LoadSetupPage` `load_setup.py:33` | Port, baud, address, parity, duty bounds. Probe output goes to `diagnostics/load-probe-latest.json` (`:414`). |
 | `appearance.json` | `theme.save_theme` `theme.py:249` | Theme key. |

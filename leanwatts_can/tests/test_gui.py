@@ -175,6 +175,17 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(page.other_number.isChecked())
         self.assertIn("Other number", page.test_only.toolTip())
 
+    def test_dashboard_key_changes_need_no_administrator_login(self):
+        page = self.window.dashboard_page
+        with patch("leanwatts_can.gui.LoginDialog") as login, patch("leanwatts_can.account_settings.LoginDialog") as login2:
+            self.assertTrue(page.can_configure())
+            page._forget()
+            self.assertEqual(page.status.text(), "Saved API key removed.")
+        login.assert_not_called()
+        login2.assert_not_called()
+        # the software-update source keeps its administrator gate
+        self.assertEqual(self.window.update_page.can_configure, self.window._authorize_update_config)
+
     def test_no_outer_scroll_and_laptop_layout(self):
         w = self.window
         minimum = w.minimumSize()

@@ -17,6 +17,7 @@ from . import theme
 from .core import Recipe
 from .protocol import encode_all_config
 from .recipe_defaults import apply_automatic_settings, automatic_settings_summary
+from .recipe_preset import PresetError, load_preset
 
 
 PARAMETER_PAIRS = [
@@ -101,6 +102,10 @@ class RecipePage(QWidget):
         self.new_button = QPushButton("New variant")
         self.new_button.clicked.connect(self.new_variant)
         toolbar.addWidget(self.new_button)
+        self.import_button = QPushButton("Import preset…")
+        self.import_button.setToolTip("Fill a new variant from a preset file (JSON, or CSV with field,value rows). Nothing is saved until you press Save variant.")
+        self.import_button.clicked.connect(lambda checked=False: self.import_preset())
+        toolbar.addWidget(self.import_button)
         self.save_button = QPushButton("Save variant")
         self.save_button.setObjectName("Primary")
         self.save_button.clicked.connect(self.save_variant)
@@ -410,6 +415,34 @@ class RecipePage(QWidget):
         self._show_recipe(recipe)
         self._set_status("New variant · Unsaved changes. Enter a name, then save your draft.", "info")
         self.name.setFocus()
+
+    def import_preset(self, path=None):
+        """Load a preset file into the editor as an unsaved new variant."""
+        if self._busy:
+            return
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(self, "Import recipe preset", "",
+                                                  "Recipe presets (*.json *.csv *.txt);;All files (*)")
+            if not path:
+                return
+        try:
+            recipe, ignored = load_preset(path)
+        except PresetError as exc:
+            self._set_status(f"Preset not imported. {exc}", "error")
+            return
+        self.selector.setCurrentIndex(-1)
+        self._show_recipe(recipe)
+        self._mark_unsaved()
+        message = f"Preset loaded from {Path(path).name} · Unsaved changes. Check the values"
+        message += ", enter a name," if not recipe.name.strip() else ","
+        message += " then save your draft."
+        if recipe.name.strip() and any(r["recipe"]["name"].casefold() == recipe.name.strip().casefold()
+                                       for r in self.records):
+            message += " A saved variant with this name exists; saving will replace it as a new revision."
+        if ignored:
+            message += " Ignored: " + ", ".join(ignored[:6]) + ("…" if len(ignored) > 6 else "") + "."
+        self._set_status(message, "info")
+        (self.name if not recipe.name.strip() else self.save_button).setFocus()
 
     def _number(self, key, edit, *, allow_blank):
         text = edit.text().strip()
